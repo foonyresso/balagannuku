@@ -63,6 +63,8 @@ export interface BuildingState {
   roadAttached: boolean; // кеш, перераховує sim
   stock: Partial<Record<ResourceKind, number>>;
   workers: NpcId[];
+  /** Переробник на паузі (гравець зупинив): не бере й не приймає сировину. Необов'язкове поле. */
+  paused?: boolean;
 }
 
 /**

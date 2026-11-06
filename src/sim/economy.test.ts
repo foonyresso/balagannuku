@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../shared';
 import { RESOURCE_KINDS, SECTOR_SIZE, TrailStage } from '../shared';
-import { applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
+import { buildCheck, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
 import { claimStart } from './worldgen';
 
 const mk = (id: string): PlayerState => ({
@@ -102,6 +102,52 @@ describe('економіка', () => {
     run(w, 600);
     expect(w.state.flows.total.byBuilding[q.id].produced.stone ?? 0).toBeGreaterThan(before);
     expect(rt.kind.reduce((a, k) => a + (k === 2 ? 1 : 0), 0)).toBe(stones); // вузли лишаються
+  });
+
+  it('тупик: багато лісопилень не блокують будівництво лісоруба (резерв + безкоштовний перший)', () => {
+    const w = setup();
+    // забагато лісопилень, лісоруба ще немає: перший лісоруб безкоштовний навіть без дерева
+    hall(w).stock = { stone: 100, planks: 50, wood: 12 };
+    w.freeBuild = true;
+    for (let k = 0; k < 4; k++) staffBuilding(w, 'p', place(w, 'sawmill', 24 + k * 3, 24).id, 1);
+    w.freeBuild = false;
+    hall(w).stock.wood = 0;
+    expect(buildCheck(w, 'p', 'lumberjack')).toMatchObject({ ok: true, free: true });
+    const lj = place(w, 'lumberjack', 36, 31);
+    staffBuilding(w, 'p', lj.id);
+    run(w, 1500);
+    // лісопилні не з'їдають резерв: на складі лишається дерево на нового лісоруба
+    const min: number[] = [];
+    for (let t = 0; t < 600; t++) { stepWorld(w); min.push(hall(w).stock.wood ?? 0); }
+    expect(Math.min(...min.slice(100))).toBeGreaterThanOrEqual(10); // резерв під будівництво недоторканий
+    expect(w.state.flows.total.byBuilding[lj.id].produced.wood).toBeGreaterThan(0);
+    // другий лісоруб (5 дерева) будується: дерево над резервом є
+    expect(buildCheck(w, 'p', 'lumberjack')).toMatchObject({ ok: true, free: false });
+  });
+
+  it('резерв: лісопилня не бере зі складу нижче порогу', () => {
+    const w = setup();
+    const sm = place(w, 'sawmill', 33, 31);
+    hall(w).stock = { wood: 9 };
+    staffBuilding(w, 'p', sm.id, 2);
+    run(w, 300);
+    expect(hall(w).stock.wood).toBe(9);
+    expect(sm.stock.wood ?? 0).toBe(0);
+  });
+
+  it('пауза: лісопилня на паузі не працює і не приймає колоди', () => {
+    const w = setup();
+    const sm = place(w, 'sawmill', 33, 31);
+    const lj = place(w, 'lumberjack', 36, 31);
+    staffBuilding(w, 'p', lj.id, 2);
+    staffBuilding(w, 'p', sm.id, 2);
+    expect(applyCommand(w, { player: 'p', seq: 9, cmd: { type: 'set_building_paused', building: sm.id, paused: true } }).ok).toBe(true);
+    run(w, 800);
+    expect(w.state.flows.total.byBuilding[sm.id]?.produced.planks ?? 0).toBeLessThanOrEqual(1);
+    expect(w.state.flows.total.edges[`${lj.id}>${sm.id}:wood`] ?? 0).toBe(0);
+    applyCommand(w, { player: 'p', seq: 10, cmd: { type: 'set_building_paused', building: sm.id, paused: false } });
+    run(w, 800);
+    expect(w.state.flows.total.byBuilding[sm.id].produced.planks).toBeGreaterThan(0);
   });
 
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {

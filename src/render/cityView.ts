@@ -2,7 +2,7 @@ import { Application, Container, Graphics } from 'pixi.js';
 import type { BuildingKind } from '../shared';
 import { SECTOR_SIZE, TrailStage } from '../shared';
 import {
-  applyCommand, getSectorRt, ratePerSec, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
+  applyCommand, buildCheck, getSectorRt, ratePerSec, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
 } from '../sim';
 import { COSTS, MAX_WORKERS } from '../sim/balance';
 import { planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
@@ -102,7 +102,7 @@ export class CityView {
     if (!c || !this.selected) return;
     const r = applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'place_building', kind: this.selected, sector: this.sector, cell: c } });
     const msg = this.panel.querySelector('#cityMsg')!;
-    if (!r.ok) { msg.textContent = r.reason === 'no_resources' ? 'Не вистачає ресурсів' : 'Тут не можна'; return; }
+    if (!r.ok) { msg.textContent = r.reason === 'no_resources' ? `Не вистачає: ${this.missingText(this.selected)}` : 'Тут не можна'; return; }
     const b = this.w.state.buildings[this.w.state.buildings.length - 1];
     const n = staffBuilding(this.w, this.player, b.id);
     msg.textContent = n ? `Побудовано, працівників: ${n}` : MAX_WORKERS[b.kind] ? 'Побудовано, немає вільних працівників' : 'Побудовано';
@@ -114,6 +114,11 @@ export class CityView {
     this.applyCam();
   };
 
+  private missingText(k: BuildingKind): string {
+    const m = buildCheck(this.w, this.player, k).missing;
+    return Object.entries(m).map(([r, v]) => `${v} ${RES_NAMES[r]?.toLowerCase() ?? r}`).join(', ');
+  }
+
   private buildPanel(): void {
     const btns = (Object.keys(BUILD_NAMES) as BuildingKind[]).map((k) => {
       const cost = Object.entries(COSTS[k] ?? {}).map(([r, v]) => `${v} ${RES_NAMES[r]?.toLowerCase()}`).join(', ');
@@ -123,6 +128,13 @@ export class CityView {
       `<div id="cityMsg">Обери будівлю й клікни по клітинці</div><div id="cityFlow"></div><button id="cityBack">← До карти</button>`;
     this.panel.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((b) => {
       b.onclick = () => { this.selected = b.dataset.k as BuildingKind; this.markSel(); };
+    });
+    this.panel.addEventListener('click', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pause]');
+      if (!t) return;
+      const b = this.w.byId.get(Number(t.dataset.pause));
+      if (b) applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'set_building_paused', building: b.id, paused: !b.paused } });
+      this.updatePanel();
     });
     (this.panel.querySelector('#cityBack') as HTMLButtonElement).onclick = () => this.onExit();
     this.markSel();
@@ -216,12 +228,17 @@ export class CityView {
     this.panel.querySelector('#cityRes')!.innerHTML =
       Object.entries(RES_NAMES).map(([k, name]) => `${name}: <b>${p.resources[k as 'wood']}</b>`).join(' · ') +
       `<br>Жителів: <b>${this.w.state.npcs.count}</b>, вільних: <b>${idle}</b>`;
+    this.panel.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((btn) => {
+      const k = btn.dataset.k as BuildingKind, c = buildCheck(this.w, this.player, k);
+      btn.classList.toggle('no', !c.ok);
+      btn.title = c.ok ? (c.free ? 'Перший лісоруб безкоштовний' : '') : `Не вистачає: ${this.missingText(k)}`;
+    });
     const rows = this.w.state.buildings.filter((b) => MAX_WORKERS[b.kind]).map((b) => {
       const out = b.kind === 'sawmill' ? 'planks' : b.kind === 'quarry' ? 'stone' : 'wood';
       const rate = ratePerSec(this.w, b.id, 'produced', out);
       const starved = this.w.state.flows.last.byBuilding[b.id]?.starved ?? 0;
       return `<div>${BUILD_NAMES[b.kind]} #${b.id} (${b.workers.length}/${MAX_WORKERS[b.kind]}): ${RES_NAMES[out]} ${rate.toFixed(2)}/с` +
-        `${starved > 20 ? ' <span class="bad">простій</span>' : ''}${b.roadAttached ? ' 🛣' : ''}</div>`;
+        `${starved > 20 ? ' <span class="bad">простій</span>' : ''}${b.roadAttached ? ' 🛣' : ''}${b.kind === 'sawmill' ? ` <button data-pause="${b.id}">${b.paused ? '▶ Пуск' : '⏸ Пауза'}</button>` : ''}</div>`;
     }).join('');
     this.panel.querySelector('#cityFlow')!.innerHTML = rows ? `<h3>Виробництво</h3>${rows}` : '';
   }
