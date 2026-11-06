@@ -16,6 +16,10 @@ export interface HudHooks {
   speed(s: number): void;
   pause(id: number): void;
   demolish(id: number): void;
+  addWorker(building: number): void;
+  removeWorker(building: number): void;
+  assign(npc: number, building: number): void;
+  unassign(npc: number): void;
 }
 export interface HudState {
   selected: Sel | null; build: BuildingKind | null; following: boolean;
@@ -24,7 +28,7 @@ export interface HudState {
 }
 
 const BUILDABLE = Object.keys(BUILD_NAMES).filter((k) => k !== 'townhall') as BuildingKind[];
-const TABS: [Tab, string][] = [['build', '🔨 Будівництво'], ['people', '👥 Жителі'], ['prod', '📊 Виробництво']];
+const TABS: [Tab, string][] = [['build', '🔨 Будівництво'], ['people', '👷 Робітники'], ['prod', '📊 Виробництво']];
 const cost = (k: BuildingKind) => Object.entries(COSTS[k] ?? {}).map(([r, v]) => `${v} ${RES_NAMES[r]?.toLowerCase()}`).join(', ');
 
 type RowMap = Map<number, { el: HTMLElement; text: string }>;
@@ -54,6 +58,10 @@ export class CityHud {
   private peopleRows: RowMap = new Map();
   private prodRows: RowMap = new Map();
   private infoSig = '';
+  private filter: 'all' | 'free' | 'busy' = 'all';
+  /** Режим призначення: клік по робітнику у списку сажає його в цю споруду. */
+  assignTarget: number | null = null;
+  private lastNpc: number | null = null;
   private msgTimer: number | undefined;
 
   constructor(hooks: HudHooks, private w: SimWorld, private player: string, private sector: number) {
@@ -63,14 +71,16 @@ export class CityHud {
       <div id="cityInfo" hidden>
         <div class="hd"><div><h3 id="infoTitle"></h3><small id="infoKind"></small></div><button id="infoClose" title="Закрити (Esc)">×</button></div>
         <table id="infoRows"></table>
+        <div id="infoSlots" hidden><span>Працівники</span><button data-slot="-">−</button><b id="slotNum"></b><button data-slot="+">+</button></div>
         <div id="infoWorkers"></div>
-        <div class="acts"><button id="infoFollow"></button><button data-pause hidden></button><button id="infoDemolish" hidden>Знести</button></div>
+        <div id="infoAssign"></div>
+        <div class="acts"><button id="infoFollow"></button><button id="infoFree" hidden>Звільнити з роботи</button><button data-pause hidden></button><button id="infoDemolish" hidden>Знести</button></div>
       </div>
       <div id="cityMsg"></div>
       <div id="cityBottom">
         <div id="cityBody">
           <div data-body="build" class="btns">${BUILDABLE.map((k) => `<button data-k="${k}"><b>${BUILD_NAMES[k]}</b><small>${cost(k)}</small></button>`).join('')}</div>
-          <div data-body="people" class="list"></div>
+          <div data-body="people"><div id="peopleFilter">${(['all', 'free', 'busy'] as const).map((f) => `<button data-f="${f}"></button>`).join('')}</div><div class="list" id="peopleList"></div></div>
           <div data-body="prod" class="list"></div>
         </div>
         <div id="cityTabs">${TABS.map(([t, l]) => `<button data-tab="${t}">${l}</button>`).join('')}<span id="cityHint"></span></div>
@@ -95,7 +105,18 @@ export class CityHud {
     on('button[data-pause]', () => { const id = this.lastSelBuilding; if (id !== null) hooks.pause(id); });
     // Рядки списків/працівників спрацьовують на pointerdown: вміст оновлюється, і click може не дійти.
     const pick = (sel: Sel) => hooks.select(sel, sel.t === 'npc');
-    on('[data-body=people] .row', (r) => pick({ t: 'npc', id: Number(r.dataset.key) }), 'pointerdown');
+    on('[data-body=people] .row', (r) => {
+      const id = Number(r.dataset.key);
+      if (this.assignTarget !== null) { hooks.assign(id, this.assignTarget); this.assignTarget = null; this.update(this.st); return; }
+      pick({ t: 'npc', id });
+    }, 'pointerdown');
+    on('button[data-f]', (b) => { this.filter = b.dataset.f as typeof this.filter; this.update(this.st); });
+    on('button[data-slot]', (b) => {
+      const id = this.lastSelBuilding; if (id === null) return;
+      if (b.dataset.slot === '+') hooks.addWorker(id); else hooks.removeWorker(id);
+    });
+    on('#infoAssign button', (b) => { const id = this.lastNpc; if (id !== null) hooks.assign(id, Number(b.dataset.b)); });
+    this.$('#infoFree').onclick = () => { if (this.lastNpc !== null) hooks.unassign(this.lastNpc); };
     on('[data-body=prod] .row', (r) => pick({ t: 'building', id: Number(r.dataset.key) }), 'pointerdown');
     on('#infoWorkers .row', (r) => pick({ t: 'npc', id: Number(r.dataset.key) }), 'pointerdown');
     this.showTab();
@@ -105,6 +126,8 @@ export class CityHud {
   private lastBuild: BuildingKind | null = null;
   private lastFollow = false;
   private lastSelBuilding: number | null = null;
+
+  openTab(t: Tab): void { this.tab = t; this.showTab(); }
 
   private showTab(): void {
     this.root.querySelectorAll<HTMLElement>('[data-body]').forEach((e) => { e.hidden = e.dataset.body !== this.tab; });
@@ -140,11 +163,19 @@ export class CityHud {
       btn.classList.toggle('no', !c.ok); btn.classList.toggle('sel', st.build === k);
       btn.title = c.ok ? (c.free ? 'Перший лісоруб безкоштовний' : '') : `Не вистачає: ${this.missingText(k)}`;
     });
-    this.$('#cityHint').textContent = st.build
+    this.$('#cityHint').textContent = this.assignTarget !== null ? 'Обери робітника у списку, щоб посадити його в споруду (клік по вкладці — скасувати)'
+      : st.build
       ? `Будівництво: ${BUILD_NAMES[st.build]} — клік по землі, Esc або ПКМ — скасувати`
       : 'Клікни по жителю, споруді, дереву чи дорозі, щоб побачити інформацію';
     if (this.tab === 'people') {
-      syncRows(this.$('[data-body=people]'), this.peopleRows, list.map((r) => ({
+      const nFree = list.filter((r) => r.workplace < 0).length;
+      const names: Record<string, string> = { all: `Усі (${list.length})`, free: `Вільні (${nFree})`, busy: `Зайняті (${list.length - nFree})` };
+      this.root.querySelectorAll<HTMLButtonElement>('button[data-f]').forEach((bt) => {
+        const t = names[bt.dataset.f!]; if (bt.textContent !== t) bt.textContent = t;
+        bt.classList.toggle('sel', bt.dataset.f === this.filter);
+      });
+      const shown = list.filter((r) => this.filter === 'all' || (this.filter === 'free') === (r.workplace < 0));
+      syncRows(this.$('#peopleList'), this.peopleRows, shown.map((r) => ({
         key: r.id, text: `${npcName(seed, r.id)} · ${PROF_TXT[r.profession] ?? r.profession}${r.workplace >= 0 ? ` #${r.workplace}` : ''}: ${stateText(r)}`,
         cls: r.state === 'no_path' ? 'x' : undefined,
       })).slice(0, 300));
@@ -183,8 +214,9 @@ export class CityHud {
     const info = st.selected ? describeSel(this.w, this.player, this.sector, st.selected) : null;
     box.hidden = !info;
     this.lastSelBuilding = info?.building ?? null;
-    if (!info) { this.infoSig = ''; return; }
-    const sig = JSON.stringify([info.title, info.kind, info.rows, info.workers, info.warn]);
+    this.lastNpc = info?.npc ?? null;
+    if (!info) { this.infoSig = ''; this.assignTarget = null; return; }
+    const sig = JSON.stringify([info.title, info.kind, info.rows, info.workers, info.warn, info.assign, info.canUnassign, info.slots]);
     if (sig !== this.infoSig) {
       this.infoSig = sig;
       this.$('#infoTitle').textContent = info.title;
@@ -196,6 +228,11 @@ export class CityHud {
         const d = document.createElement('div'); d.className = 'row'; d.dataset.key = String(x.id); d.textContent = `${x.name}: ${x.state}`; wk.append(d);
       }
       box.classList.toggle('bad', !!info.warn);
+      const asg = this.$('#infoAssign');
+      asg.innerHTML = info.assign ? '<h4>Призначити на роботу</h4>' + (info.assign.length ? info.assign.map((a) => `<button data-b="${a.building}">${a.label}</button>`).join('') : '<div class="none">вільних місць немає</div>') : '';
+      this.$('#infoFree').hidden = !info.canUnassign;
+      const sl = this.$('#infoSlots'); sl.hidden = !info.slots;
+      if (info.slots) this.$('#slotNum').textContent = `${info.slots.cur}/${info.slots.max}`;
     }
     const f = this.$('#infoFollow'), t = st.following ? '📍 Камера слідує' : '📍 Слідкувати';
     if (f.textContent !== t) f.textContent = t;

@@ -35,3 +35,8 @@
 #citySpeed button { min-width: 2.6em; padding: 0.2em 0.4em; }
 #citySpeed button:disabled { opacity: 0.6; cursor: default; }
 #speedActual { margin-left: 0.5em; color: #f9a; }
+#peopleFilter { display: flex; gap: 0.4em; margin-bottom: 0.4em; }
+#infoSlots { display: flex; align-items: center; gap: 0.5em; margin-top: 0.5em; }
+#infoSlots span { color: #9a90aa; flex: 1; }
+#infoAssign { display: flex; flex-wrap: wrap; gap: 0.3em; }
+#infoAssign h4 { flex-basis: 100%; }

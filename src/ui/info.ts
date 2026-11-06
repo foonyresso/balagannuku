@@ -1,5 +1,5 @@
 import { SECTOR_CELLS, SECTOR_SIZE, type BuildingKind } from '../shared';
-import { getSectorRt, nodeTile, ratePerSec, residents, NODE_STONE, NODE_TREE, type Resident, type SimWorld } from '../sim';
+import { hasVacancy, getSectorRt, nodeTile, ratePerSec, residents, NODE_STONE, NODE_TREE, type Resident, type SimWorld } from '../sim';
 import { MAX_WORKERS, STORAGE_CAP } from '../sim/balance';
 import { npcName } from './names';
 
@@ -36,6 +36,10 @@ export interface Info {
   workers?: { id: number; name: string; state: string }[];
   /** Позиція в тайлах (для камери й рамки). */
   pos: { x: number; y: number };
+  /** Для жителя: куди можна призначити (вільні місця) і чи можна зняти з роботи. */
+  npc?: number; assign?: { building: number; label: string }[]; canUnassign?: boolean;
+  /** Для споруди зі слотами: поточна/макс. кількість працівників (кнопки +/−). */
+  slots?: { cur: number; max: number };
   canPause?: boolean; paused?: boolean; canDemolish?: boolean; building?: number;
   warn?: boolean;
 }
@@ -72,8 +76,12 @@ export function describeSel(w: SimWorld, player: string, sector: number, sel: Se
       ['Несе', r.carry ? `${r.carry} × ${RES_NAMES[r.carryKind ?? ''] ?? r.carryKind}${r.processed ? ' (оброблене)' : ''}` : 'нічого'],
       ['Здоровʼя', `${n.hp[sel.id]}`],
       ['Рівень', `${n.level[sel.id]}`],
+      ['Перки', 'поки немає'],
     ];
-    return { title: npcName(seed, sel.id), kind: 'Житель', rows, pos, warn: r.state === 'no_path' };
+    const assign = w.state.buildings
+      .filter((x) => x.owner === player && x.sector === sector && x.id !== r.workplace && hasVacancy(x))
+      .map((x) => ({ building: x.id, label: `${BUILD_NAMES[x.kind]} #${x.id} (${x.workers.length}/${MAX_WORKERS[x.kind]})` }));
+    return { title: npcName(seed, sel.id), kind: 'Житель', rows, pos, warn: r.state === 'no_path', npc: sel.id, assign, canUnassign: r.workplace >= 0 };
   }
   if (sel.t === 'building') {
     const b = w.byId.get(sel.id)!, max = MAX_WORKERS[b.kind] ?? 0, out = OUT[b.kind];
@@ -105,6 +113,7 @@ export function describeSel(w: SimWorld, player: string, sector: number, sel: Se
     const workers = b.workers.map((id) => ({ id, name: npcName(seed, id), state: names.get(id) ? stateText(names.get(id)!) : '' }));
     return {
       title: `${BUILD_NAMES[b.kind] ?? b.kind} #${b.id}`, kind: 'Споруда', rows, workers, pos, building: b.id,
+      slots: max && b.progress >= 1 ? { cur: b.workers.length, max } : undefined,
       canPause: b.kind === 'sawmill', paused: !!b.paused, canDemolish: b.kind !== 'townhall', warn: status.startsWith('Простій'),
     };
   }
