@@ -43,6 +43,8 @@ export class MapView {
   private moved = false;
   private last = { x: 0, y: 0 };
   hoverId: number | null = null;
+  /** Примірений (ще не підтверджений) сектор: жовта рамка. */
+  selectedId: number | null = null;
   onHover: (id: number | null, clientX: number, clientY: number) => void = () => {};
   onClick: (id: number) => void = () => {};
   /** Чи сектор заборонений для старту (підсвічується червоним при наведенні). */
@@ -118,6 +120,10 @@ export class MapView {
   private drawOverlay(): void {
     const g = this.overlay;
     g.clear();
+    if (this.selectedId !== null) {
+      const sel = this.getState().sectors[this.selectedId];
+      g.poly(tileGeometry(sel.hex, sectorHeight(sel.richness)).top).stroke({ width: 5, color: 0xffd54f });
+    }
     if (this.hoverId === null) return;
     const s = this.getState().sectors[this.hoverId];
     const bad = this.blocked(this.hoverId);

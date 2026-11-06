@@ -55,10 +55,11 @@ function startClient(cl: import('./net').ClientLobby, snap: MapState, player: st
   client = new ClientSession(cl, snap as never, player);
   state = client.state;
   client.onChange = () => onSession();
-  client.onResult = (ok, reason) => { lastResult = ok ? 'Стартовий сектор обрано!' : REASONS[reason ?? 'invalid'] ?? 'Відмова'; onSession(); }
+  client.onResult = (ok, reason) => { lastResult = ok ? 'Стартовий сектор підтверджено!' : REASONS[reason ?? 'invalid'] ?? 'Відмова'; onSession(); if (ok) enterCityNow(); };
   onSession();
 }
 let lastResult = '';
+let enterCityNow: () => void = () => {};
 
 async function startGraphics(): Promise<void> {
 
@@ -92,25 +93,50 @@ view.onHover = (id, x, y) => {
   const owner = s.owner ? state.players.find((p) => p.id === s.owner)!.nickname : 'вільний';
   const claim = canClaimStart(state, me, id);
   const hint = myPlayer()?.homeSector === null
-    ? (claim.ok ? '<em>Клік — обрати стартом</em>' : `<em class="bad">${REASONS[claim.reason]}</em>`) : '';
+    ? (claim.ok ? '<em>Клік — примірити цей сектор</em>' : `<em class="bad">${REASONS[claim.reason]}</em>`) : '';
   tip.innerHTML = `<h3>Сектор ${s.hex.q},${s.hex.r}</h3><div>${owner}</div>${rows}${hint}`;
   tip.style.display = 'block';
   tip.style.left = `${Math.min(x + 16, window.innerWidth - tip.offsetWidth - 8)}px`;
   tip.style.top = `${Math.min(y + 16, window.innerHeight - tip.offsetHeight - 8)}px`;
 };
 
+// Клік лише «примірює» сектор (можна міняти скільки завгодно); підтверджує кнопка «Грати».
+let selected: number | null = null;
+const playBtn = $<HTMLButtonElement>('play');
+const refreshPlay = () => {
+  const mine = myPlayer();
+  const need = mine?.homeSector === null;
+  playBtn.style.display = need ? '' : 'none';
+  if (!need) { selected = null; view.selectedId = null; return; }
+  const c = selected === null ? null : canClaimStart(state, me, selected);
+  playBtn.disabled = !c || !c.ok;
+  view.selectedId = selected;
+  status.textContent = selected === null ? 'Обери сектор (можна міняти вибір) і натисни «Грати»'
+    : c && c.ok ? `Сектор ${state.sectors[selected].hex.q},${state.sectors[selected].hex.r}: натисни «Грати»`
+    : `Цей сектор не підходить: ${REASONS[(c as { reason: string }).reason]}. Обери інший`;
+};
 view.onClick = (id) => {
+  if (myPlayer()?.homeSector !== null) return;
+  selected = id;
+  refreshPlay();
+  view.redraw();
+};
+playBtn.onclick = () => {
+  if (selected === null) return;
+  const id = selected;
   if (netRole === 'client') {
     const c = canClaimStart(state, me, id);
-    if (!c.ok) { status.textContent = REASONS[c.reason]; return; }
+    if (!c.ok) { refreshPlay(); return; }
     status.textContent = 'Надсилаю хосту…';
+    playBtn.disabled = true;
     client!.claim(id);
     return;
   }
   const r = host ? host.claim(me, id) : claimStart(state, me, id);
-  status.textContent = r.ok ? 'Стартовий сектор обрано!' : REASONS[r.reason];
+  if (!r.ok) { refreshPlay(); view.redraw(); return; }
   view.redraw();
   onSession();
+  enterCityNow();
 };
 
 function placeBot(): void {
@@ -120,25 +146,31 @@ function placeBot(): void {
   if (id !== undefined) claimStart(state, 'bot1', id);
 }
 
-// Етап економіки (поки лише соло): вигляд міста домашнього сектора.
+// Місто домашнього сектора. Поки кожен гравець симулює своє місто локально (синхронізація економіки — пізніше).
 let city: CityView | null = null;
 let sim: SimWorld | null = null;
 const cityBtn = $<HTMLButtonElement>('enterCity');
 const exitCity = () => { city?.destroy(); city = null; view.world.visible = true; $('hud').style.display = ''; };
-cityBtn.onclick = () => {
+enterCityNow = () => {
   const home = myPlayer()?.homeSector;
-  if (home === null || home === undefined || netRole !== 'solo') return;
-  if (!sim) { sim = wrapState(state as never); startCity(sim, me); }
+  if (home === null || home === undefined || city) return;
+  if (!sim) {
+    // Клієнтський знімок містить заглушку npcs без масивів: прибираємо, щоб sim створив власні.
+    if (netRole === 'client') delete (state as { npcs?: unknown }).npcs;
+    sim = wrapState(state as never);
+    startCity(sim, me);
+  }
   view.world.visible = false; tip.style.display = 'none'; $('hud').style.display = 'none';
   city = new CityView(app, sim, me, home, exitCity);
 };
+cityBtn.onclick = () => enterCityNow();
 
 onSession = () => {
   const mine = myPlayer();
-  cityBtn.style.display = netRole === 'solo' && mine?.homeSector != null ? '' : 'none';
+  cityBtn.style.display = mine?.homeSector != null ? '' : 'none';
+  refreshPlay();
   if (lastResult) { status.textContent = lastResult; lastResult = ''; }
-  else if (mine?.homeSector === null) status.textContent = 'Обери стартовий сектор';
-  else if (mine) status.textContent = 'Стартовий сектор обрано!';
+  else if (mine && mine.homeSector !== null) status.textContent = 'Сектор обрано. Гра йде у твоєму місті';
   ($('newWorld') as HTMLButtonElement).disabled = netRole !== 'solo';
   ($('dist') as HTMLInputElement).disabled = netRole !== 'solo';
   view.blocked = (id) => !canClaimStart(state, me, id).ok;
@@ -150,7 +182,7 @@ function reset(): void {
   exitCity();
   sim = null;
   state = newWorld(Math.floor(Math.random() * 1e9));
-  status.textContent = 'Обери стартовий сектор';
+  selected = null;
   placeBot();
   view.redraw();
 }
