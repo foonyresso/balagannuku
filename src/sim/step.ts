@@ -1,11 +1,11 @@
 import type { BuildingState, ResourceKind } from '../shared';
 import {
-  PROFESSIONS, RESOURCE_KINDS, ROAD_ATTACH_MIN_STAGE, ROAD_SPEED_MULT, TASKS, TRAIL_DECAY_FACTOR,
+  PROFESSIONS, RESOURCE_KINDS, ROAD_ATTACH_MIN_STAGE, ROAD_SPEED_MULT, TASKS,
   TRAIL_DECAY_INTERVAL, TRAIL_MAX, TRAIL_STEP_ADD, TrailStage, stageFromTraffic,
 } from '../shared';
 import {
   ATTACHED_WORK_MULT, CARRY_CAP, PROCESS_TICKS, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, WOOD_RESERVE, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
-  ROAD_CHECK_INTERVAL, STONE_AMOUNT, STORAGE_CAP, TREE_AMOUNT, TREE_REGROW_INTERVAL, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
+  ROAD_CHECK_INTERVAL, TRAIL_DECAY_BY_STAGE, STONE_AMOUNT, STORAGE_CAP, TREE_AMOUNT, TREE_REGROW_INTERVAL, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
 } from './balance';
 import { flowConsume, flowEdge, flowProduce, flowStarve, rollFlowWindow } from './flow';
 import { findPath } from './path';
@@ -131,7 +131,7 @@ function advance(w: SimWorld, i: number, rt: SectorRt): boolean {
   return false;
 }
 
-function stepOn(w: SimWorld, rt: SectorRt, t: number): void {
+export function stepOn(w: SimWorld, rt: SectorRt, t: number): void {
   const tr = rt.trails.traffic;
   tr[t] = Math.min(TRAIL_MAX, tr[t] + TRAIL_STEP_ADD);
   const ns = stageFromTraffic(tr[t], rt.stage[t]);
@@ -364,13 +364,15 @@ function updateRoadAttached(w: SimWorld): void {
   }
 }
 
-function decayTrails(w: SimWorld): void {
+/** Згасання на `steps` інтервалів одразу (звичайний тік = 1). Швидкість залежить від стадії тайла (TRAIL_DECAY_BY_STAGE). */
+export function decayTrails(w: SimWorld, steps = 1): void {
+  const keep = TRAIL_DECAY_BY_STAGE.map((r) => Math.pow(1 - r, steps));
   for (const rt of w.sectors.values()) {
     const t = rt.trails.traffic;
     for (let c = 0; c < t.length; c++) {
       if (!t[c]) continue;
       // Випадкове (детерміноване) округлення: слабкий трафік згасає повільно, а не зникає за один крок.
-      t[c] = Math.floor(t[c] * TRAIL_DECAY_FACTOR + hash2(c, w.state.tick, 9));
+      t[c] = Math.floor(t[c] * keep[rt.stage[c]] + hash2(c, w.state.tick, 9));
       const ns = stageFromTraffic(t[c], rt.stage[c]);
       if (ns !== rt.stage[c]) {
         rt.stage[c] = ns;
