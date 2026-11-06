@@ -7,6 +7,7 @@ import {
 import { COSTS, FOOTPRINT, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
 import { ISO_Y, clampCamToWorld, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
 import { Surroundings } from './surroundings';
+import { lerpPos, TickClock } from './interp';
 
 /** Розмір ТАЙЛА в одиницях площини (та сама проєкція, що й у карти): сектор = SECTOR_SIZE тайлів ≈ 1024 одиниці. */
 const TILE = 4;
@@ -90,11 +91,13 @@ export class CityView {
     app.ticker.add(this.draw);
     this.timer = window.setInterval(() => {
       stepWorld(this.w);
+      this.clock.tick(performance.now());
       if (this.w.events.some((e) => e.e === 'trail_stage_changed')) this.groundDirty = true;
     }, 100);
     this.rebuild();
   }
 
+  private clock = new TickClock();
   private surroundings: Surroundings;
   /** Багатство сусіднього сектора: сусідній гекс карти за напрямом (або домашній, якщо гекса немає). */
   private neighbourSector(dx: number, dy: number) {
@@ -281,10 +284,13 @@ export class CityView {
     const n = this.w.state.npcs;
     for (const g of this.rowNpc) g.clear();
     const hw = (NPC_TILES * TILE) / 2; // NPC ≈ 2×2 тайли (візуально), без жорсткої колізії
+    const alpha = this.clock.alpha(performance.now()), npc = this.w.npc;
     for (let i = 0; i < n.capacity; i++) {
       if (!n.alive[i] || n.sector[i] !== this.sector) continue;
-      const px = n.x[i] * TILE, py = n.y[i] * TILE;
-      const row = Math.min(NB - 1, Math.max(0, Math.floor(n.y[i] / BUCKET)));
+      // плавний рух: інтерполяція між позицією на початку тіка й поточною, без округлення до тайла
+      const tx = lerpPos(npc.px[i], n.x[i], alpha), ty = lerpPos(npc.py[i], n.y[i], alpha);
+      const px = tx * TILE, py = ty * TILE;
+      const row = Math.min(NB - 1, Math.max(0, Math.floor(ty / BUCKET)));
       const base = planeToIso(px, py, 0), body = planeToIso(px, py, hw * 1.6);
       const g = this.rowNpc[row];
       g.ellipse(base.x, base.y, hw, hw * 0.5).fill({ color: 0x000000, alpha: 0.35 });

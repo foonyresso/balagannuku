@@ -41,6 +41,9 @@ export interface NpcRt {
   aux: Int32Array; // допоміжне: клітинка вузла / будівля-джерело
   path: (Float32Array | null)[]; // пари (x,y) у тайлах
   pathPos: Uint16Array; // індекс у path (кроком 2)
+  /** Позиція NPC на початку останнього тіка (для плавної інтерполяції в рендері). */
+  px: Float32Array;
+  py: Float32Array;
   /** 0 = несе сировину (збирає/до хатинки), 1 = оброблене (готове до доставки). */
   stage: Uint8Array;
   /** 1 = гравець сам зняв NPC з роботи: автопризначення його не чіпає. */
@@ -78,7 +81,7 @@ function createNpcRt(capacity: number): NpcRt {
   return {
     phase: new Uint8Array(capacity), timer: new Uint16Array(capacity),
     workplace: new Int32Array(capacity).fill(-1), aux: new Int32Array(capacity).fill(-1),
-    path: new Array(capacity).fill(null), pathPos: new Uint16Array(capacity), tile: new Int32Array(capacity).fill(-1), manual: new Uint8Array(capacity), stage: new Uint8Array(capacity),
+    path: new Array(capacity).fill(null), pathPos: new Uint16Array(capacity), tile: new Int32Array(capacity).fill(-1), manual: new Uint8Array(capacity), stage: new Uint8Array(capacity), px: new Float32Array(capacity), py: new Float32Array(capacity),
   };
 }
 
@@ -164,6 +167,7 @@ export function wrapState(state: Omit<GameState, 'npcs'> & { npcs?: NpcStore }, 
     events: [], stageChanges: [], freeBuild: false, why: new Map(),
   };
   rebuildIndex(w);
+  w.npc.px.set(full.npcs.x); w.npc.py.set(full.npcs.y);
   return w;
 }
 
