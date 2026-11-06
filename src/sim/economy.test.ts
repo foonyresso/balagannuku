@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../shared';
 import { RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
-import { buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
+import { residents, buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
 import { findPath, setRoadPull } from './path';
 import { ROAD_SPEED_MULT } from '../shared';
 import { MIGRATIONS } from '../shared';
@@ -280,6 +280,38 @@ describe('економіка', () => {
     expect(w.state.npcs.count).toBeGreaterThan(before + 1);
     expect(sm.workers.length).toBeGreaterThanOrEqual(1);
     expect(lj.workers.length + sm.workers.length).toBe(w.state.npcs.count - 2);
+  });
+
+  it('жителі видимі: працівники розходяться по різних деревах, вільні не стовпляться; лічильник = список станів', () => {
+    const w = setup();
+    const tiles = (ids: number[]) => new Set(ids.map((i) => `${Math.floor(w.state.npcs.x[i])},${Math.floor(w.state.npcs.y[i])}`)).size;
+    const all = residents(w, 'p');
+    expect(all.length).toBe(w.state.npcs.count);
+    expect(tiles(all.map((r) => r.id))).toBeGreaterThanOrEqual(4); // 5 вільних не в одній точці
+    const lj = place(w, 'lumberjack', 40, 30);
+    staffBuilding(w, 'p', lj.id);
+    let spread = 0, samples = 0;
+    for (let t = 0; t < 400; t++) {
+      stepWorld(w);
+      if (t > 100 && t % 10 === 0) { spread += tiles(lj.workers); samples++; }
+    }
+    expect(spread / samples).toBeGreaterThanOrEqual(3.5); // з 5 робітників видно хоча б ~4 різні місця
+    const list = residents(w, 'p');
+    expect(list.length).toBe(w.state.npcs.count);
+    expect(list.every((r) => r.state !== 'free')).toBe(true);
+    expect(list.some((r) => r.state === 'working' || r.state === 'to_node' || r.state === 'carrying')).toBe(true);
+  });
+
+  it('жителі: стани вільний/чекає з причиною', () => {
+    const w = setup();
+    expect(residents(w, 'p').every((r) => r.state === 'free')).toBe(true);
+    getSectorRt(w, 0).kind.fill(0); // немає дерев
+    const lj = place(w, 'lumberjack', 40, 30);
+    staffBuilding(w, 'p', lj.id);
+    run(w, 60);
+    const r = residents(w, 'p')[0];
+    expect(r.state).toBe('waiting');
+    expect(r.why).toBe('no_node');
   });
 
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {

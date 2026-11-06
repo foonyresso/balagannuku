@@ -29,6 +29,7 @@ export interface SectorRt {
   kind: Uint8Array; // клітинка: вид вузла ресурсу (похідний від seed)
   amount: Uint8Array; // клітинка: стан вузла (0 = зрубано, відростає)
   forest: Uint8Array; // клітинка: 1 = є живе дерево (дорожче йти)
+  claimBy: Int32Array; // клітинка: NPC+1, що обрав цей вузол (щоб працівники розходились по різних деревах)
   buildings: BuildingState[];
 }
 
@@ -101,7 +102,7 @@ export function getSectorRt(w: SimWorld, id: number): SectorRt {
   const nc = C * C, nt = T * T;
   rt = {
     id, trails: createTrailLayer(), stage: new Uint8Array(nt), cellStage: new Uint8Array(nc), occ: new Uint8Array(nt),
-    blocked: new Uint8Array(nc), kind: new Uint8Array(nc), amount: new Uint8Array(nc), forest: new Uint8Array(nc), buildings: [],
+    blocked: new Uint8Array(nc), kind: new Uint8Array(nc), amount: new Uint8Array(nc), forest: new Uint8Array(nc), claimBy: new Int32Array(nc), buildings: [],
   };
   if (sec.trails) rt.trails.traffic = unpack(sec.trails);
   const saved = sec.nodes ? unpack<Uint8Array>(sec.nodes) : null;
