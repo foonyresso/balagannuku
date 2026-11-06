@@ -21,7 +21,7 @@
 Хост-авторитетна. Клієнти шлють `command`, хост розсилає `events` і періодичні `snapshot` (раз на `SNAPSHOT_INTERVAL_TICKS`). Вхід: код кімнати + нікнейм + токен; при втраті токена хост призначає місто вручну з лобі. Світ живе, лише поки хост онлайн.
 
 ## Збереження
-Один `.save` файл (`shared/save.ts`): `magic`, `version`, `state`. При завантаженні `migrateSave` послідовно застосовує `MIGRATIONS[N]` до `SAVE_VERSION`. Автозбереження в IndexedDB — лише страховка. Продовження: завантажити сейв → лобі з новим кодом кімнати → гравці повертаються за токеном.
+Один `.save` файл (`shared/save.ts`): `magic`, `version`, `state`. При завантаженні `migrateSave` послідовно застосовує `MIGRATIONS[N]` до `SAVE_VERSION`. Автозбереження в IndexedDB (`persist/storage.ts`, поточне + попереднє, інтервал у `persist/config.ts`) — страховка; `SaveController` (`persist/controller.ts`) робить автосейв за таймером і ручні Save/Load, меню `persist/saveMenu.ts`. Світ серіалізує `sim.serialize/deserialize`; у `SaveFile` лежить ще `speed`. Зберігає лише хост. Несумісний сейв → `SaveError` з текстом «почни нову гру». Headless-перевірка: `scripts/smoke-save.cjs`. Продовження: завантажити сейв → лобі з новим кодом кімнати → гравці повертаються за токеном.
 
 ## Стежки (емерджентні дороги)
 `shared/trails.ts`. Кожен сектор має `Uint16Array` трафіку на клітинку.
