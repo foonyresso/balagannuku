@@ -30,7 +30,8 @@ export const COSTS: Partial<Record<BuildingKind, Partial<Record<ResourceKind, nu
   sawmill: { wood: 10, stone: 5 },
   house: { planks: 5 },
 };
-export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 8, quarry: 8, sawmill: 4 };
+/** Слоти працівників на будівлю. Продуктивність = частка зайнятих слотів (кожен працівник працює сам), окремої формули немає. */
+export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 2, quarry: 4, sawmill: 2 };
 export const JOB_OF: Partial<Record<BuildingKind, Profession>> = {
   lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer',
 };
