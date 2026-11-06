@@ -3,7 +3,8 @@ import type { BuildingKind, Profession, ResourceKind } from '../shared';
 /** Баланс економіки (не впливає на формат сейва). */
 export const NPC_CAPACITY = 4096;
 export const NPC_SPEED = 1; // тайлів за тік на землі (= 0.25 клітинки навігації)
-export const CARRY_CAP = 3;
+export const CARRY_CAP = 3; // колод/каменів за один рейс (по одному за візит до вузла)
+export const PROCESS_TICKS = 30; // обтесування в хатинці (лісоруб/каменяр) перед доставкою
 export const WORK_TICKS = 15; // добування одиниці
 export const MILL_TICKS = 20; // 2 дерева -> 1 дошка
 export const WAIT_TICKS = 15; // очікування при нестачі
