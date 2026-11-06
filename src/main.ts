@@ -6,6 +6,14 @@ import { canClaimStart, claimStart, createInitialState, DEFAULT_WORLD_RADIUS, SE
 import { mulberry32 } from './sim/rng';
 import { mountLobby } from './ui';
 
+declare global { interface Window { __showError?: (where: string, e: unknown) => void } }
+const showError = (where: string, e: unknown) => window.__showError?.(where, e);
+
+// 1) Лобі — першим і окремо: працює навіть якщо графіка чи карта зламані.
+try {
+  const lobby = mountLobby({ onHostStart: () => lobby.destroy(), onJoined: () => lobby.destroy() });
+} catch (e) { showError('лобі', e); }
+
 const ME = 'me';
 const REASONS: Record<string, string> = {
   occupied: 'Сектор зайнятий', too_close_to_start: 'Надто близько до чужого старту', invalid: 'Старт уже обрано',
@@ -17,7 +25,8 @@ const mkPlayer = (id: string, nickname: string, color: number): PlayerState => (
 });
 
 let minDist = MIN_START_DISTANCE;
-let state = newWorld(Math.floor(Math.random() * 1e9));
+let state!: ReturnType<typeof newWorld>;
+try { state = newWorld(Math.floor(Math.random() * 1e9)); } catch (e) { showError('генерація світу', e); }
 
 function newWorld(seed: number) {
   return createInitialState(seed, DEFAULT_WORLD_RADIUS, minDist, [
@@ -25,17 +34,18 @@ function newWorld(seed: number) {
   ]);
 }
 
-const lobby = mountLobby({ onHostStart: () => lobby.destroy(), onJoined: () => lobby.destroy() });
-const statusEl = document.getElementById('status')!;
+async function startGraphics(): Promise<void> {
+
 const app = new Application();
 try {
   await app.init({ resizeTo: window, background: '#1a1420', antialias: true, preference: 'webgl' });
 } catch (e) {
-  statusEl.textContent = 'Не вдалося запустити графіку (WebGL): ' + (e instanceof Error ? e.message : String(e));
-  statusEl.style.color = '#f66';
-  throw e;
+  showError('графіка (WebGL)', e);
+  return;
 }
 document.getElementById('app')!.appendChild(app.canvas);
+// 3) Карта й інтерфейс — окремий етап.
+try {
 
 const view = new MapView(app, () => state);
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -104,5 +114,6 @@ applyScale();
 
 reset();
 app.renderer.on('resize', () => view.redraw());
-
-
+} catch (e) { showError('карта', e); }
+}
+void startGraphics();
