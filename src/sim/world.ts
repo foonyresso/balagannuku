@@ -44,6 +44,8 @@ export interface SimWorld {
   stageChanges: { sector: number; cell: number; stage: number }[];
   /** Будівництво без витрат (тести/бенчмарк). */
   freeBuild: boolean;
+  /** Остання причина простою будівлі (для підказок UI): no_node, no_storage, storage_full, no_wood, no_path, paused. Не серіалізується. */
+  why: Map<BuildingId, string>;
 }
 
 export function createNpcStore(capacity: number): NpcStore {
@@ -120,7 +122,7 @@ export function wrapState(state: Omit<GameState, 'npcs'> & { npcs?: NpcStore }, 
   if (!full.npcs) full.npcs = createNpcStore(capacity);
   const w: SimWorld = {
     state: full, sectors: new Map(), npc: createNpcRt(full.npcs.capacity), byId: new Map(),
-    events: [], stageChanges: [], freeBuild: false,
+    events: [], stageChanges: [], freeBuild: false, why: new Map(),
   };
   rebuildIndex(w);
   return w;

@@ -126,7 +126,8 @@ const workTicks = (b: BuildingState, base: number, richness = 0.5) =>
 const richOf = (w: SimWorld, b: BuildingState, prof: number) =>
   w.state.sectors[b.sector].richness[prof === MINER ? 'stone' : 'wood'] ?? 0.5;
 
-function wait(w: SimWorld, i: number, b: BuildingState, starve = true): void {
+function wait(w: SimWorld, i: number, b: BuildingState, reason: string, starve = true): void {
+  w.why.set(b.id, reason);
   w.npc.phase[i] = WAIT; w.npc.timer[i] = WAIT_TICKS;
   w.state.npcs.task[i] = T('rest');
   w.npc.path[i] = null;
@@ -136,7 +137,8 @@ function wait(w: SimWorld, i: number, b: BuildingState, starve = true): void {
 function planDeposit(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   const n = w.state.npcs, kind = RESOURCE_KINDS[n.carryKind[i]];
   const st = nearestAcceptor(rt, b.owner, n.x[i], n.y[i], kind);
-  if (!st || !setPath(w, i, rt, st.entrance.x, st.entrance.y)) return wait(w, i, b);
+  if (!st) return wait(w, i, b, 'no_storage');
+  if (!setPath(w, i, rt, st.entrance.x, st.entrance.y)) return wait(w, i, b, 'no_path');
   n.targetBuilding[i] = st.id;
   w.npc.phase[i] = WALK_DEPOSIT; n.task[i] = T('carry');
 }
@@ -147,7 +149,8 @@ function plan(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   if (n.carryAmount[i] > 0) return planDeposit(w, i, rt, b);
   const nodeKind = n.profession[i] === MINER ? NODE_STONE : NODE_TREE;
   const cell = findNode(rt, b, nodeKind);
-  if (cell < 0 || !setPath(w, i, rt, cell % S, (cell / S) | 0)) return wait(w, i, b);
+  if (cell < 0) return wait(w, i, b, 'no_node');
+  if (!setPath(w, i, rt, cell % S, (cell / S) | 0)) return wait(w, i, b, 'no_path');
   npc.aux[i] = cell; npc.phase[i] = WALK_NODE; n.task[i] = T('walk');
 }
 
@@ -155,14 +158,15 @@ function planSawyer(w: SimWorld, i: number, rt: SectorRt, mill: BuildingState): 
   const n = w.state.npcs, npc = w.npc;
   const carry = n.carryAmount[i] > 0 ? n.carryKind[i] : -1;
   if (carry === PLANKS) return planDeposit(w, i, rt, mill);
-  if (mill.paused && carry < 0 && stockOf(mill, 'planks') === 0) return wait(w, i, mill, false);
+  if (mill.paused && carry < 0 && stockOf(mill, 'planks') === 0) return wait(w, i, mill, 'paused', false);
   if (carry === WOOD || stockOf(mill, 'wood') >= 2 || stockOf(mill, 'planks') > 0) {
-    if (!setPath(w, i, rt, mill.entrance.x, mill.entrance.y)) return wait(w, i, mill);
+    if (!setPath(w, i, rt, mill.entrance.x, mill.entrance.y)) return wait(w, i, mill, 'no_path');
     npc.phase[i] = WALK_MILL; n.task[i] = T('walk');
     return;
   }
   const st = nearestStorage(rt, mill.owner, n.x[i], n.y[i], 'wood', 2 + WOOD_RESERVE);
-  if (!st || !setPath(w, i, rt, st.entrance.x, st.entrance.y)) return wait(w, i, mill);
+  if (!st) return wait(w, i, mill, 'no_wood');
+  if (!setPath(w, i, rt, st.entrance.x, st.entrance.y)) return wait(w, i, mill, 'no_path');
   n.targetBuilding[i] = st.id;
   npc.phase[i] = WALK_TAKE; n.task[i] = T('walk');
 }
@@ -191,6 +195,7 @@ function stepNpc(w: SimWorld, i: number): void {
         rt.amount[c] = 0; rt.forest[c] = 0;
         n.carryKind[i] = isStone ? STONE : WOOD; n.carryAmount[i]++;
         const k = RESOURCE_KINDS[n.carryKind[i]];
+        w.why.delete(b.id);
         flowProduce(w, b.id, k, 1);
         flowEdge(w, 0, b.id, k, 1);
       }
@@ -210,7 +215,7 @@ function stepNpc(w: SimWorld, i: number): void {
           flowEdge(w, b.id, st.id, k, put);
         }
       }
-      if (n.carryAmount[i] === 0) { n.carryKind[i] = 255; npc.phase[i] = PLAN; } else wait(w, i, b);
+      if (n.carryAmount[i] === 0) { n.carryKind[i] = 255; npc.phase[i] = PLAN; } else wait(w, i, b, 'storage_full');
       break;
     }
     case WALK_TAKE: {
@@ -218,7 +223,7 @@ function stepNpc(w: SimWorld, i: number): void {
       const st = w.byId.get(n.targetBuilding[i]);
       const have = st ? stockOf(st, 'wood') : 0;
       const usable = have - WOOD_RESERVE; // решта — резерв під будівництво
-      if (!st || usable < 2 || b.paused) { npc.phase[i] = PLAN; wait(w, i, b); break; }
+      if (!st || usable < 2 || b.paused) { npc.phase[i] = PLAN; wait(w, i, b, b.paused ? 'paused' : 'no_wood'); break; }
       const take = Math.min(Math.max(2, MILL_BUFFER - stockOf(b, 'wood')), usable);
       st.stock.wood = have - take;
       n.carryKind[i] = WOOD; n.carryAmount[i] = take;
@@ -240,7 +245,7 @@ function stepNpc(w: SimWorld, i: number): void {
       if (--npc.timer[i] > 0) break;
       if (stockOf(b, 'wood') >= 2) {
         b.stock.wood = stockOf(b, 'wood') - 2; b.stock.planks = stockOf(b, 'planks') + 1;
-        flowConsume(w, b.id, 'wood', 2); flowProduce(w, b.id, 'planks', 1);
+        w.why.delete(b.id); flowConsume(w, b.id, 'wood', 2); flowProduce(w, b.id, 'planks', 1);
       }
       startMill(w, i, b);
       break;
