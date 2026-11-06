@@ -18,7 +18,7 @@ export function spawnNpc(w: SimWorld, ownerIdx: number, sector: number, cx: numb
   n.profession[i] = 0; n.task[i] = TASKS.indexOf('idle'); n.targetBuilding[i] = -1;
   n.owner[i] = ownerIdx; n.hp[i] = 100; n.level[i] = 1;
   n.carryKind[i] = 255; n.carryAmount[i] = 0;
-  n.nameId[i] = makeNameId(hash2(i, n.count, 13)); n.perks[i] = 0;
+  n.nameId[i] = makeNameId(hash2(i, n.count, 13)); n.perks[i] = 0; n.fullness[i] = 100;
   for (let s = 0; s < NPC_STAT_COUNT; s++) n.stats[i * NPC_STAT_COUNT + s] = NPC_STAT_BASE[s];
   w.npc.phase[i] = 0; w.npc.timer[i] = 0; w.npc.workplace[i] = -1; w.npc.aux[i] = -1; w.npc.path[i] = null; w.npc.tile[i] = -1; w.npc.manual[i] = 0; w.npc.stage[i] = 0;
   return i;

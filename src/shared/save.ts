@@ -1,7 +1,7 @@
 import type { SerializedGameState } from './state';
 
 /** Поточна версія формату сейва. Підвищуй при КОЖНІЙ зміні форми SerializedGameState. */
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 export const SAVE_MAGIC = 'balagannuku-save';
 export const SAVE_EXTENSION = '.save';
 
@@ -76,6 +76,8 @@ export const MIGRATIONS: Record<number, SaveMigration> = {
     }
     return { ...f, version: 8, state: { ...f.state, sectors: f.state.sectors.map((s) => ({ ...s, trails: null, nodes: null })) } };
   },
+  // v8 -> v9: ситість NPC (fullness) і ферма/фермер; масив fullness створює deserialize (повна ситість).
+  8: (old) => ({ ...(old as object), version: 9 }),
 };
 
 export function migrateSave(raw: { version: number }): SaveFile {
