@@ -31,15 +31,16 @@ export const COSTS: Partial<Record<BuildingKind, Partial<Record<ResourceKind, nu
   house: { planks: 5 },
   farm: { wood: 10, planks: 2 },
   hunter: { wood: 8 },
+  fisher: { wood: 8 },
 };
 /** Слоти працівників на будівлю. Продуктивність = частка зайнятих слотів (кожен працівник працює сам), окремої формули немає. */
-export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 2, quarry: 4, sawmill: 2, warehouse: 4, farm: 3, hunter: 2 };
+export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 2, quarry: 4, sawmill: 2, warehouse: 4, farm: 3, hunter: 2, fisher: 2 };
 /** Типова кількість працівників: решта будівель заповнюється повністю, підсклад — лише за командою гравця. */
 export const DEFAULT_WORKERS: Partial<Record<BuildingKind, number>> = { warehouse: 0 };
 /** Ноша носія підскладу за рейс (більша за звичайну). */
 export const CARRIER_CAP = 12;
 export const JOB_OF: Partial<Record<BuildingKind, Profession>> = {
-  lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer', warehouse: 'carrier', farm: 'farmer', hunter: 'hunter',
+  lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer', warehouse: 'carrier', farm: 'farmer', hunter: 'hunter', fisher: 'fisher',
 };
 
 /** Резерв дерева на складах: переробка (лісопильня) не бере й не приймає дерево, поки на складах менше. Будівництво важливіше. */
@@ -62,6 +63,7 @@ export const FOOTPRINT: Partial<Record<BuildingKind, { w: number; h: number }>> 
   house: { w: 6, h: 6 },
   farm: { w: 10, h: 10 },
   hunter: { w: 8, h: 8 },
+  fisher: { w: 8, h: 8 },
 };
 /** Візуальний розмір у тайлах (без жорсткої колізії): NPC 2×2, дерево 3×3, камінь 4×4. */
 export const NPC_TILES = 2, TREE_TILES = 3, STONE_TILES = 4;
@@ -83,3 +85,5 @@ export const TRAIL_DECAY_BY_STAGE = [0.0015, 0.001, 0.00015, 0.00002] as const;
 export const FULL_MAX = 100, HUNGER_INTERVAL = 12, EAT_BELOW = 50, HUNGRY_BELOW = 30, FOOD_RESTORE = 50, HUNGRY_MULT = 0.5;
 /** Ферма: одна од. їжі за FARM_TICKS роботи, фермер несе до FARM_CARRY за рейс. */
 export const FARM_TICKS = 150, FARM_CARRY = 4;
+/** Рибалка: ставиться на березі (вхід не далі FISH_SHORE_RADIUS тайлів від води), 1 од. їжі за FISH_TICKS. */
+export const FISH_TICKS = 120, FISH_SHORE_RADIUS = 12;

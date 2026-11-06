@@ -2,11 +2,11 @@ import type {
   BuildingKind, BuildingState, CommandEnvelope, CommandRejectReason, CommandResult, ResourceKind,
 } from '../shared';
 import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE } from '../shared';
-import { COSTS, FOOTPRINT, JOB_OF, MAX_WORKERS, PLACE_MARGIN, START_SETTLERS, START_STOCK, STORAGE_CAP } from './balance';
+import { FISH_SHORE_RADIUS, COSTS, FOOTPRINT, JOB_OF, MAX_WORKERS, PLACE_MARGIN, START_SETTLERS, START_STOCK, STORAGE_CAP } from './balance';
 import { assignNpc, autoStaffIdle, slotsOf, unassignNpc } from './assign';
 import { spawnNpc } from './npcs';
 import { syncPlayerResources } from './step';
-import { C as CELLS, CENTER_TILE, NODE_NONE, T as TILES, TPC, getSectorRt, markFootprint, nodeTile, rebuildIndex, type SimWorld } from './world';
+import { C as CELLS, CENTER_TILE, NODE_NONE, T as TILES, TPC, getSectorRt, markFootprint, shoreNear, nodeTile, rebuildIndex, type SimWorld } from './world';
 
 type Res = { ok: true } | { ok: false; reason: CommandRejectReason };
 const no = (reason: CommandRejectReason): Res => ({ ok: false, reason });
@@ -34,6 +34,7 @@ export function checkPlace(w: SimWorld, sector: number, kind: BuildingKind, x: n
   if (!fp || !Number.isInteger(x) || !Number.isInteger(y)) return 'invalid';
   if (x < ACTIVE_MIN_TILE || y < ACTIVE_MIN_TILE || x + fp.w > ACTIVE_MAX_TILE || y + fp.h + 1 > ACTIVE_MAX_TILE) return 'invalid'; // лише в активній зоні
   const rt = getSectorRt(w, sector);
+  if (kind === 'fisher' && !shoreNear(w, sector, x + (fp.w >> 1), y + fp.h, FISH_SHORE_RADIUS)) return 'invalid'; // лише біля води
   for (let ty = y; ty <= y + fp.h; ty++) {
     for (let tx = x; tx < x + fp.w; tx++) if (rt.occ[ty * TILES + tx]) return 'occupied';
   }

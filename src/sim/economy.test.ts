@@ -9,6 +9,8 @@ import { FOOTPRINT } from './balance';
 import { claimStart } from './worldgen';
 import { markFootprint } from './world';
 import { planRoute } from './route';
+import { homeLake } from './water';
+import { shoreNear } from './world';
 import { COMPACT_NODEGEN, configureNodegen } from './nodegen';
 
 const mk = (id: string): PlayerState => ({
@@ -27,7 +29,7 @@ export function setup(seed = 7): SimWorld {
 /** Тайли неактивної смуги завжди зайняті. */
 const BORDER_OCC = SECTOR_SIZE * SECTOR_SIZE - (ACTIVE_MAX_TILE - ACTIVE_MIN_TILE) ** 2;
 const OFF = SECTOR_CELLS / 2 - 32;
-type Kind = 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'farm' | 'hunter' | 'house';
+type Kind = 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'farm' | 'hunter' | 'fisher' | 'house';
 /** Найближчий до (x0,y0) тайл, де кind можна поставити (за checkPlace). */
 const free = (w: SimWorld, kind: Kind, x0: number, y0: number) => {
   let best = { x: x0, y: y0 }, bd = Infinity;
@@ -721,5 +723,31 @@ describe('полювання', () => {
     expect(f.byBuilding[b.id]?.produced.food ?? 0).toBeGreaterThan(0);
     expect(f.edges[`${b.id}>${hall(w).id}:food`] ?? 0).toBeGreaterThan(0);
     expect(f.edges[`0>${b.id}:food`] ?? 0).toBeGreaterThan(0);
+  });
+});
+
+describe('риболовля', () => {
+  it('рибалку можна ставити лише біля води; рибалка ловить їжу й несе до складу', () => {
+    const w = setup(5);
+    const hl = homeLake(5), wx = Math.round(hl.x), wy = Math.round(hl.y);
+    expect(checkPlace(w, 0, 'fisher', hall(w).cell.x + 40, hall(w).cell.y)).toBe('invalid'); // далеко від води
+    const sh = shoreNear(w, 0, wx, wy, 300)!;
+    let at: { x: number; y: number } | null = null;
+    for (let d = 0; d < 20 && !at; d++) for (let dy = -d; dy <= d && !at; dy++) for (let dx = -d; dx <= d && !at; dx++) {
+      const x = sh.x + dx - 4, y = sh.y + dy - 9;
+      if (checkPlace(w, 0, 'fisher', x, y) === null) at = { x, y };
+    }
+    expect(at).not.toBeNull();
+    w.freeBuild = true;
+    const r = applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'place_building', kind: 'fisher', sector: 0, cell: at! } });
+    expect(r.ok).toBe(true);
+    const b = w.state.buildings[w.state.buildings.length - 1];
+    hall(w).stock.food = 0;
+    staffBuilding(w, 'p', b.id, 1);
+    expect(b.workers.length).toBe(1);
+    run(w, 3500);
+    const f = w.state.flows.total;
+    expect(f.byBuilding[b.id]?.produced.food ?? 0).toBeGreaterThan(0);
+    expect(f.edges[`${b.id}>${hall(w).id}:food`] ?? 0).toBeGreaterThan(0);
   });
 });
