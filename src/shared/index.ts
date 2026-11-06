@@ -3,6 +3,7 @@ export * from './constants';
 export * from './trails';
 export * from './flows';
 export * from './state';
+export * from './npc';
 export * from './commands';
 export * from './save';
 export * from './net';

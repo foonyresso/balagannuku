@@ -2,7 +2,7 @@ import type {
   BuildingId, BuildingState, GameEvent, GameState, NpcStore, PackedNpcStore, PlayerState, SectorState,
   SerializedGameState, TrailLayer,
 } from '../shared';
-import { SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, stageFromTraffic } from '../shared';
+import { NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, stageFromTraffic } from '../shared';
 import { hash2 } from './rng';
 import { genNode } from './nodegen';
 import { NPC_CAPACITY, STONE_AMOUNT, TREE_AMOUNT } from './balance';
@@ -64,6 +64,13 @@ export interface SimWorld {
   why: Map<BuildingId, string>;
 }
 
+/** Стати за замовчуванням (норма) для capacity NPC. */
+export function defaultStats(capacity: number): Uint8Array {
+  const a = new Uint8Array(capacity * NPC_STAT_COUNT);
+  for (let i = 0; i < capacity; i++) for (let s = 0; s < NPC_STAT_COUNT; s++) a[i * NPC_STAT_COUNT + s] = NPC_STAT_BASE[s];
+  return a;
+}
+
 export function createNpcStore(capacity: number): NpcStore {
   return {
     capacity, count: 0,
@@ -74,6 +81,7 @@ export function createNpcStore(capacity: number): NpcStore {
     hp: new Uint16Array(capacity), level: new Uint8Array(capacity),
     inventory: new Uint16Array(capacity * 8), equipment: new Uint16Array(capacity * 4),
     carryKind: new Uint8Array(capacity).fill(255), carryAmount: new Uint8Array(capacity),
+    nameId: new Uint16Array(capacity), stats: defaultStats(capacity), perks: new Uint16Array(capacity),
   };
 }
 
@@ -193,6 +201,10 @@ export function deserialize(s: SerializedGameState): SimWorld {
   const { npcs: pn, ...rest } = structuredClone(s);
   const npcs: Record<string, unknown> = { capacity: pn.capacity, count: pn.count };
   for (const [k, v] of Object.entries(pn)) if (typeof v !== 'number') npcs[k] = unpack(v);
+  // Старі сейви (до v5) без імен/статів/перків: заповнюємо нормою
+  if (!npcs.stats) npcs.stats = defaultStats(pn.capacity);
+  if (!npcs.nameId) npcs.nameId = new Uint16Array(pn.capacity);
+  if (!npcs.perks) npcs.perks = new Uint16Array(pn.capacity);
   const w = wrapState({ ...rest, npcs: npcs as unknown as NpcStore }, pn.capacity);
   for (const b of w.state.buildings) {
     getSectorRt(w, b.sector);

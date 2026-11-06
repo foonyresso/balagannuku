@@ -337,7 +337,7 @@ export class CityView {
     });
     // Рядки «Виробництво» живуть постійно й оновлюються на місці: інакше кнопка зникає між mousedown і click.
     const host = this.panel.querySelector('#cityFlow')!;
-    const live = this.w.state.buildings.filter((b) => MAX_WORKERS[b.kind]);
+    const live = this.w.state.buildings.filter((b) => MAX_WORKERS[b.kind] && b.kind !== 'warehouse');
     if (!this.flowTitle) { this.flowTitle = document.createElement('h3'); this.flowTitle.textContent = 'Виробництво'; }
     if (live.length && !this.flowTitle.parentNode) host.prepend(this.flowTitle);
     if (!live.length && this.flowTitle.parentNode) this.flowTitle.remove();
@@ -358,7 +358,7 @@ export class CityView {
       const rate = ratePerSec(this.w, b.id, 'produced', out);
       const starved = this.w.state.flows.last.byBuilding[b.id]?.starved ?? 0;
       const why = starved > 20 ? ` — простій: ${WHY[this.w.why.get(b.id) ?? ''] ?? '?'}` : '';
-      const txt = `${BUILD_NAMES[b.kind]} #${b.id} — працівників ${b.workers.length}/${MAX_WORKERS[b.kind]}, ефективність ${Math.round((b.workers.length / (MAX_WORKERS[b.kind] ?? 1)) * 100)}%: ${RES_NAMES[out]} ${rate.toFixed(2)}/с${why}${b.roadAttached ? ' 🛣' : ''}`;
+      const txt = `${BUILD_NAMES[b.kind]} #${b.id} — працівників ${b.workers.length}/${MAX_WORKERS[b.kind]}, ефективність ${Math.round((b.workers.length / Math.max(1, MAX_WORKERS[b.kind] ?? 1)) * 100)}%: ${RES_NAMES[out]} ${rate.toFixed(2)}/с${why}${b.roadAttached ? ' 🛣' : ''}`;
       if (r.text.textContent !== txt) r.text.textContent = txt;
       r.text.classList.toggle('bad', starved > 20);
       if (r.btn) { const l = b.paused ? '▶ Пуск' : '⏸ Пауза'; if (r.btn.textContent !== l) r.btn.textContent = l; }

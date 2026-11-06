@@ -64,6 +64,8 @@ export interface BuildingState {
   roadAttached: boolean; // кеш, перераховує sim
   stock: Partial<Record<ResourceKind, number>>;
   workers: NpcId[];
+  /** Бажана кількість працівників (плюс/мінус у UI). Немає = типове для виду. */
+  workerCap?: number;
   /** Переробник на паузі (гравець зупинив): не бере й не приймає сировину. Необов'язкове поле. */
   paused?: boolean;
 }
@@ -90,6 +92,12 @@ export interface NpcStore {
   equipment: Uint16Array; // capacity * EQUIPMENT_SLOTS
   carryKind: Uint8Array; // що несе (індекс RESOURCE_KINDS, 255 = нічого)
   carryAmount: Uint8Array;
+  /** Ім'я: індекс у таблиці імен (npcName). */
+  nameId: Uint16Array;
+  /** Стати: capacity * NPC_STAT_COUNT, у відсотках (див. NPC_STATS). */
+  stats: Uint8Array;
+  /** Маска перків (PERKS). */
+  perks: Uint16Array;
 }
 
 export const INVENTORY_SLOTS = 8;

@@ -33,6 +33,8 @@ export function residents(w: SimWorld, player: string): Resident[] {
         case PHASE.WALK_HOME: state = 'to_home'; break;
         case PHASE.WORK_HOME: state = 'processing'; break;
         case PHASE.WALK_DEPOSIT: state = 'carrying'; break;
+        case PHASE.CARRY_DROP: state = 'carrying'; break;
+        case PHASE.CARRY_PICK:
         case PHASE.WALK_TAKE: state = 'to_storage_take'; break;
         case PHASE.WALK_MILL: state = 'to_mill'; break;
         case PHASE.WORK_MILL: state = 'milling'; break;

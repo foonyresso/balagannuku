@@ -4,7 +4,7 @@ import {
   TRAIL_DECAY_INTERVAL, TRAIL_MAX, TRAIL_STEP_ADD, TrailStage, stageFromTraffic,
 } from '../shared';
 import {
-  ATTACHED_WORK_MULT, CARRY_CAP, PROCESS_TICKS, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, WOOD_RESERVE, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
+  ATTACHED_WORK_MULT, CARRIER_CAP, CARRY_CAP, PROCESS_TICKS, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, WOOD_RESERVE, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
   ROAD_CHECK_INTERVAL, TRAIL_DECAY_BY_STAGE, STONE_AMOUNT, STORAGE_CAP, TREE_AMOUNT, TREE_REGROW_INTERVAL, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
 } from './balance';
 import { flowConsume, flowEdge, flowProduce, flowStarve, rollFlowWindow } from './flow';
@@ -15,14 +15,19 @@ import {
 } from './world';
 import { autoStaffIdle } from './assign';
 import { hash2 } from './rng';
+import { NPC_STAT_COUNT, statIndex } from '../shared';
+
+const ST_WALK = statIndex('walk'), ST_CARRY = statIndex('carry'), ST_GATHER = statIndex('gather');
+/** Множник NPC за статом (1 = норма). */
+const mul = (w: SimWorld, i: number, s: number): number => w.state.npcs.stats[i * NPC_STAT_COUNT + s] / 100;
 import { spawnNpc } from './npcs';
 
 // Фази NPC
-export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7, WALK_HOME: 8, WORK_HOME: 9 } as const;
-const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT, WALK_HOME, WORK_HOME } = PHASE;
+export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7, WALK_HOME: 8, WORK_HOME: 9, CARRY_PICK: 10, CARRY_DROP: 11 } as const;
+const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT, WALK_HOME, WORK_HOME, CARRY_PICK, CARRY_DROP } = PHASE;
 const T = (n: (typeof TASKS)[number]) => TASKS.indexOf(n);
 const WOOD = RESOURCE_KINDS.indexOf('wood'), STONE = RESOURCE_KINDS.indexOf('stone'), PLANKS = RESOURCE_KINDS.indexOf('planks');
-const SAWYER = PROFESSIONS.indexOf('sawyer'), MINER = PROFESSIONS.indexOf('miner');
+const CARRIER = PROFESSIONS.indexOf('carrier'), SAWYER = PROFESSIONS.indexOf('sawyer'), MINER = PROFESSIONS.indexOf('miner');
 
 const isStorage = (b: BuildingState) => b.kind === 'townhall' || b.kind === 'warehouse';
 const stockOf = (b: BuildingState, k: ResourceKind) => b.stock[k] ?? 0;
@@ -117,7 +122,7 @@ function advance(w: SimWorld, i: number, rt: SectorRt): boolean {
   if (!path) return true;
   let pos = w.npc.pathPos[i];
   let x = n.x[i], y = n.y[i];
-  let budget = NPC_SPEED * ROAD_SPEED_MULT[rt.stage[Math.floor(y) * TILES + Math.floor(x)] as TrailStage];
+  let budget = NPC_SPEED * mul(w, i, ST_WALK) * ROAD_SPEED_MULT[rt.stage[Math.floor(y) * TILES + Math.floor(x)] as TrailStage];
   while (pos < path.length && budget > 0) {
     const tx = path[pos], ty = path[pos + 1];
     const dx = tx - x, dy = ty - y, d = Math.hypot(dx, dy);
@@ -212,9 +217,10 @@ function planDeposit(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): vo
 
 function plan(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   const n = w.state.npcs, npc = w.npc;
+  if (n.profession[i] === CARRIER) return planCarrier(w, i, rt, b);
   if (n.profession[i] === SAWYER) return planSawyer(w, i, rt, b);
   if (n.carryAmount[i] > 0 && npc.stage[i] === 1) return planDeposit(w, i, rt, b); // оброблене -> споживач/склад
-  if (n.carryAmount[i] >= CARRY_CAP) { // набрали рейс: спершу до своєї хатинки на обробку
+  if (n.carryAmount[i] >= Math.max(1, Math.round(CARRY_CAP * mul(w, i, ST_CARRY)))) { // набрали рейс: спершу до своєї хатинки на обробку
     const sp = spotNear(rt, b, i);
     if (!setPath(w, i, rt, sp.x, sp.y)) return wait(w, i, b, 'no_path');
     npc.phase[i] = WALK_HOME; n.task[i] = T('carry');
@@ -226,6 +232,35 @@ function plan(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   const nt = nodeTile(w.state.world.seed, rt.id, cell % CELLS, (cell / CELLS) | 0);
   if (!setPath(w, i, rt, nt.x, nt.y)) return wait(w, i, b, 'no_path');
   npc.aux[i] = cell; rt.claimBy[cell] = i + 1; npc.phase[i] = WALK_NODE; n.task[i] = T('walk');
+}
+
+/** Найбільший запас у будівлі (вид ресурсу) або -1. */
+function biggestStock(b: BuildingState): number {
+  let best = -1, bv = 0;
+  RESOURCE_KINDS.forEach((k, idx) => { const v = stockOf(b, k); if (v > bv) { bv = v; best = idx; } });
+  return best;
+}
+
+/** Носій підскладу: бере запас підскладу (до CARRIER_CAP) -> несе в найближчу ратушу -> назад. */
+function planCarrier(w: SimWorld, i: number, rt: SectorRt, wh: BuildingState): void {
+  const n = w.state.npcs, npc = w.npc;
+  if (n.carryAmount[i] > 0) {
+    let hall: BuildingState | null = null, bd = Infinity;
+    for (const b of rt.buildings) {
+      if (b.kind !== 'townhall' || b.owner !== wh.owner || b.progress < 1) continue;
+      const d = Math.abs(b.entrance.x - n.x[i]) + Math.abs(b.entrance.y - n.y[i]);
+      if (d < bd) { bd = d; hall = b; }
+    }
+    if (!hall) return wait(w, i, wh, 'no_storage');
+    const sp = spotNear(rt, hall, i);
+    if (!setPath(w, i, rt, sp.x, sp.y)) return wait(w, i, wh, 'no_path');
+    n.targetBuilding[i] = hall.id; npc.phase[i] = CARRY_DROP; n.task[i] = T('carry');
+    return;
+  }
+  if (biggestStock(wh) < 0) return wait(w, i, wh, 'no_stock', false);
+  const sp = spotNear(rt, wh, i);
+  if (!setPath(w, i, rt, sp.x, sp.y)) return wait(w, i, wh, 'no_path');
+  npc.phase[i] = CARRY_PICK; n.task[i] = T('walk');
 }
 
 function planSawyer(w: SimWorld, i: number, rt: SectorRt, mill: BuildingState): void {
@@ -258,7 +293,7 @@ function stepNpc(w: SimWorld, i: number): void {
       if (!advance(w, i, rt)) break;
       const c = npc.aux[i], nodeKind = n.profession[i] === MINER ? NODE_STONE : NODE_TREE;
       if (rt.kind[c] !== nodeKind) { npc.phase[i] = PLAN; break; }
-      npc.phase[i] = WORK_NODE; npc.timer[i] = workTicks(b, WORK_TICKS, richOf(w, b, n.profession[i])); n.task[i] = T('work');
+      npc.phase[i] = WORK_NODE; npc.timer[i] = Math.max(1, Math.round(workTicks(b, WORK_TICKS, richOf(w, b, n.profession[i])) / mul(w, i, ST_GATHER))); n.task[i] = T('work');
       break;
     }
     case WORK_NODE: {
@@ -296,6 +331,28 @@ function stepNpc(w: SimWorld, i: number): void {
         }
       }
       if (n.carryAmount[i] === 0) { n.carryKind[i] = 255; npc.stage[i] = 0; npc.phase[i] = PLAN; } else wait(w, i, b, 'storage_full');
+      break;
+    }
+    case CARRY_PICK: {
+      if (!advance(w, i, rt)) break;
+      const k = biggestStock(b);
+      if (k >= 0) {
+        const kind = RESOURCE_KINDS[k];
+        const take = Math.min(stockOf(b, kind), Math.max(1, Math.round(CARRIER_CAP * mul(w, i, ST_CARRY))));
+        b.stock[kind] = stockOf(b, kind) - take;
+        n.carryKind[i] = k; n.carryAmount[i] = take; npc.stage[i] = 0;
+      }
+      npc.phase[i] = PLAN;
+      break;
+    }
+    case CARRY_DROP: {
+      if (!advance(w, i, rt)) break;
+      const hall = w.byId.get(n.targetBuilding[i]), k = RESOURCE_KINDS[n.carryKind[i]];
+      if (hall) {
+        const put = Math.min(n.carryAmount[i], capOf(hall, k) - stockOf(hall, k));
+        if (put > 0) { hall.stock[k] = stockOf(hall, k) + put; n.carryAmount[i] -= put; flowEdge(w, b.id, hall.id, k, put); }
+      }
+      if (n.carryAmount[i] === 0) { n.carryKind[i] = 255; npc.phase[i] = PLAN; } else wait(w, i, b, 'storage_full');
       break;
     }
     case WALK_TAKE: {

@@ -4,7 +4,7 @@ import { DEFAULT_TRAIL_THRESHOLDS, RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, Tr
 import { decayTrails, stepOn, residents, buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
 import { findPath, setRoadPull } from './path';
 import { ROAD_SPEED_MULT } from '../shared';
-import { MIGRATIONS } from '../shared';
+import { MIGRATIONS, npcName } from '../shared';
 import { FOOTPRINT } from './balance';
 import { claimStart } from './worldgen';
 import { COMPACT_NODEGEN, configureNodegen } from './nodegen';
@@ -480,3 +480,119 @@ describe('економіка', () => {
     expect(SECTOR_SIZE).toBe(SECTOR_CELLS * 4);
   });
 });
+
+describe('склади і ручне керування працівниками', () => {
+  it('ратуша безкінечна: приймає більше за старий ліміт', () => {
+    const w = setup();
+    const lj = place(w, 'lumberjack', 36, 30);
+    hall(w).stock.wood = 5000;
+    staffBuilding(w, 'p', lj.id);
+    run(w, 600);
+    expect(hall(w).stock.wood!).toBeGreaterThan(5000);
+  });
+
+  it('підсклад: лісоруб несе до ближчого складу, а носій переносить у ратушу', () => {
+    const w = setup(3);
+    const lj = place(w, 'lumberjack', 36, 30);
+    const hx = hall(w).entrance.x, hy = hall(w).entrance.y;
+    let at = { x: 0, y: 0 }, bd = Infinity; // тайл біля лісоруба, найближчий до нього й ближчий за ратушу
+    for (let y = lj.cell.y - 30; y < lj.cell.y + 30; y += 2) for (let x = lj.cell.x - 30; x < lj.cell.x + 30; x += 2) {
+      if (checkPlace(w, 0, 'warehouse', x, y) !== null) continue;
+      const d = Math.abs(x + 6 - lj.entrance.x) + Math.abs(y + 12 - lj.entrance.y);
+      if (d < bd && d >= 12 && d < Math.abs(lj.entrance.x - hx) + Math.abs(lj.entrance.y - hy) - 6) { bd = d; at = { x, y }; }
+    }
+    expect(bd).toBeLessThan(Infinity);
+    expect(applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'place_building', kind: 'warehouse', sector: 0, cell: at } }).ok).toBe(true);
+    const wh = w.state.buildings[w.state.buildings.length - 1];
+    const d = (a: typeof lj, b: typeof lj) => Math.abs(a.entrance.x - b.entrance.x) + Math.abs(a.entrance.y - b.entrance.y);
+    expect(d(lj, wh)).toBeLessThan(d(lj, hall(w))); // склад ближчий за ратушу
+    staffBuilding(w, 'p', lj.id);
+    expect(wh.workers.length).toBe(0); // підсклад без працівників, поки гравець не додасть
+    expect(applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'set_worker_count', building: wh.id, count: 1 } }).ok).toBe(true);
+    run(w, 1500);
+    const e = w.state.flows.total.edges;
+    expect(wh.workers.length).toBe(1);
+    expect(w.npc.workplace[wh.workers[0]]).toBe(wh.id);
+    expect(e[`${lj.id}>${wh.id}:wood`] ?? 0).toBeGreaterThan(0); // видобувач -> підсклад
+    expect(e[`${wh.id}>${hall(w).id}:wood`] ?? 0).toBeGreaterThan(0); // носій -> ратуша
+  });
+
+  it('носій бере більше за звичайну ношу', () => {
+    const w = setup();
+    const wh = place(w, 'warehouse', 38, 32);
+    wh.stock.wood = 100;
+    const id = idleOf(w);
+    applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'assign_worker', npc: id, profession: 'carrier', building: wh.id } });
+    let maxCarry = 0;
+    for (let t = 0; t < 400; t++) { stepWorld(w); maxCarry = Math.max(maxCarry, w.state.npcs.carryAmount[id]); }
+    expect(maxCarry).toBeGreaterThan(3);
+    expect(wh.stock.wood!).toBeLessThan(100);
+  });
+
+  it('set_worker_count: мінус звільняє NPC, він іде на іншу роботу; плюс додає', () => {
+    const w = setup();
+    const lj = place(w, 'lumberjack', 36, 30), q = place(w, 'quarry', 30, 40);
+    run(w, 30);
+    const cnt = (b: { workers: number[] }) => b.workers.length;
+    const set = (b: { id: number }, count: number) => applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'set_worker_count', building: b.id, count } });
+    expect(set(lj, 2).ok).toBe(true);
+    expect(cnt(lj)).toBe(2);
+    expect(set(lj, 1).ok).toBe(true);
+    expect(cnt(lj)).toBe(1);
+    run(w, 30);
+    expect(cnt(lj)).toBe(1); // автопризначення не повертає зайвого
+    expect(cnt(q)).toBeGreaterThan(0); // звільнений пішов в кар'єр
+    expect(set(lj, 0).ok).toBe(true);
+    expect(cnt(lj)).toBe(0);
+    expect(set(lj, 99).ok).toBe(true);
+    expect(lj.workerCap).toBe(2); // не вище максимуму будівлі
+    expect(applyCommand(w, { player: 'x', seq: 2, cmd: { type: 'set_worker_count', building: lj.id, count: 1 } }).ok).toBe(false);
+  });
+
+  it('ручне призначення переносить NPC з іншої роботи, автопризначення його не ламає', () => {
+    const w = setup();
+    const lj = place(w, 'lumberjack', 36, 30), q = place(w, 'quarry', 30, 40);
+    run(w, 30);
+    const npc = lj.workers[0];
+    const r = applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'assign_worker', npc, profession: 'miner', building: q.id } });
+    expect(r.ok).toBe(true);
+    expect(lj.workers).not.toContain(npc);
+    expect(q.workers).toContain(npc);
+    run(w, 300);
+    expect(q.workers).toContain(npc);
+    // знятий вручну лишається вільним
+    applyCommand(w, { player: 'p', seq: 2, cmd: { type: 'unassign_worker', npc } });
+    run(w, 300);
+    expect(w.npc.workplace[npc]).toBe(-1);
+  });
+
+  it('ім’я, стати й перки NPC зберігаються в сейві; старий сейв отримує норму', () => {
+    const w = setup();
+    const n = w.state.npcs;
+    expect(n.stats[0]).toBe(100);
+    expect(npcName(n.nameId[0]).length).toBeGreaterThan(3);
+    n.stats[1] = 150; n.perks[0] = 3;
+    const back = deserialize(serialize(w));
+    expect(back.state.npcs.stats[1]).toBe(150);
+    expect(back.state.npcs.perks[0]).toBe(3);
+    expect(back.state.npcs.nameId[0]).toBe(n.nameId[0]);
+    const old = serialize(w) as unknown as { npcs: Record<string, unknown> };
+    delete old.npcs.stats; delete old.npcs.nameId; delete old.npcs.perks;
+    const w2 = deserialize(old as never);
+    expect(w2.state.npcs.stats[0]).toBe(100);
+    expect(MIGRATIONS[4]({ version: 4 })).toEqual({ version: 5 });
+  });
+
+  it('стати: швидший ходок і більша ноша працюють швидше', () => {
+    const run1 = (walk: number) => {
+      const w = setup(5);
+      const lj = place(w, 'lumberjack', 36, 30);
+      staffBuilding(w, 'p', lj.id, 1);
+      w.state.npcs.stats[lj.workers[0] * 4] = walk;
+      run(w, 800);
+      return w.state.flows.total.byBuilding[lj.id]?.produced.wood ?? 0;
+    };
+    expect(run1(200)).toBeGreaterThan(run1(100));
+  });
+});
+const idleOf = (w: SimWorld): number => w.state.npcs.alive.findIndex((a, i) => a === 1 && w.npc.workplace[i] < 0);
