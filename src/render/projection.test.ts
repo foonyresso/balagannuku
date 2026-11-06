@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hexDisc } from '../sim/hex';
-import { depthOrder, hexToIso, pickTile, tileGeometry, isoToScreen, planeToIso, screenToHex, screenToPlane, zoomAt, ZOOM_MAX, ISO_Y, ISO_Z, VIEW_ANGLE_DEG, type Camera } from './projection';
+import { clampCamToWorld, depthOrder, hexToIso, pickTile, tileGeometry, isoToScreen, planeToIso, screenToHex, screenToPlane, zoomAt, ZOOM_MAX, ISO_Y, ISO_Z, VIEW_ANGLE_DEG, type Camera } from './projection';
 
 const cam: Camera = { x: 400, y: 300, zoom: 1.3 };
 
@@ -64,5 +64,25 @@ describe('пікінг у порядку малювання', () => {
     const w = tileGeometry({ q: 0, r: 0 }, 20).walls[0].poly;
     const x = (w[0] + w[2] + w[4] + w[6]) / 4, y = (w[1] + w[3] + w[5] + w[7]) / 4;
     expect(pickTile([tiles[0]], x, y, c)).toBe(0);
+  });
+});
+
+describe('межі камери', () => {
+  const b = { minX: -100, minY: -100, maxX: 500, maxY: 500 };
+  it('усередині меж камера не змінюється', () => {
+    const c: Camera = { x: 300, y: 200, zoom: 1 };
+    const mid = screenToPlane(400, 300, c);
+    expect(mid.x).toBeGreaterThan(b.minX);
+    expect(clampCamToWorld({ x: 400 - planeToIso(100, 100).x, y: 300 - planeToIso(100, 100).y, zoom: 1 }, 800, 600, b))
+      .toEqual({ x: 400 - planeToIso(100, 100).x, y: 300 - planeToIso(100, 100).y, zoom: 1 });
+  });
+  it('далеко за межами центр повертається на край світу', () => {
+    const c = clampCamToWorld({ x: -99999, y: 99999, zoom: 0.5 }, 800, 600, b);
+    const mid = screenToPlane(400, 300, c);
+    expect(mid.x).toBeGreaterThanOrEqual(b.minX - 1e-6);
+    expect(mid.x).toBeLessThanOrEqual(b.maxX + 1e-6);
+    expect(mid.y).toBeGreaterThanOrEqual(b.minY - 1e-6);
+    expect(mid.y).toBeLessThanOrEqual(b.maxY + 1e-6);
+    expect(c.zoom).toBe(0.5);
   });
 });

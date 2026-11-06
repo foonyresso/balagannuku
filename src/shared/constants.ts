@@ -9,6 +9,11 @@ export const SIM_TICK_HZ = 10;
 export const TILES_PER_CELL = 4;
 export const SECTOR_CELLS = 256; // клітинок навігації на сторону сектора (розмір світу: міняй тут і піднімай SAVE_VERSION)
 export const SECTOR_SIZE = SECTOR_CELLS * TILES_PER_CELL; // ТАЙЛІВ на сторону сектора (1024)
+/**
+ * Видимий світ міста: квадратна сітка секторів навколо домашнього, (2·WORLD_RING+1)². 1 → 3×3, 2 → 5×5.
+ * Сусідні сектори поки лише ландшафт (ресурси з seed, лазі-створення); місця під розширення й інших гравців.
+ */
+export const WORLD_RING = 1;
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 export const MIN_START_DISTANCE = 8; // у секторах (параметр, мін. 4–5)
