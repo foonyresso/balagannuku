@@ -17,3 +17,6 @@ app.stage.addChild(hex);
 const center = () => hex.position.set(app.screen.width / 2, app.screen.height / 2);
 center();
 app.renderer.on('resize', center);
+
+import { mountLobby } from './ui';
+mountLobby();
