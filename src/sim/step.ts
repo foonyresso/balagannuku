@@ -13,6 +13,7 @@ import {
   C as CELLS, NODE_STONE, NODE_TREE, T as TILES, TPC, cellOfTile, getSectorRt, nodeTile, refreshCellStage,
   type SectorRt, type SimWorld,
 } from './world';
+import { autoStaffIdle } from './assign';
 import { spawnNpc } from './npcs';
 
 // Фази NPC
@@ -395,7 +396,7 @@ export function stepWorld(w: SimWorld): void {
   if (s.tick % TRAIL_DECAY_INTERVAL === 0) decayTrails(w);
   if (s.tick % ROAD_CHECK_INTERVAL === 0) updateRoadAttached(w);
   if (s.tick % TREE_REGROW_INTERVAL === 0) regrow(w);
-  if (s.tick % 10 === 0) { syncPlayerResources(w); houses(w); }
+  if (s.tick % 10 === 0) { syncPlayerResources(w); houses(w); autoStaffIdle(w); }
   rollFlowWindow(w);
   if (w.stageChanges.length) {
     const groups = new Map<number, { sector: number; stage: number; cells: number[] }>();

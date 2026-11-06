@@ -40,6 +40,8 @@ export interface NpcRt {
   aux: Int32Array; // допоміжне: клітинка вузла / будівля-джерело
   path: (Float32Array | null)[]; // пари (x,y) у тайлах
   pathPos: Uint16Array; // індекс у path (кроком 2)
+  /** 1 = гравець сам зняв NPC з роботи: автопризначення його не чіпає. */
+  manual: Uint8Array;
   tile: Int32Array; // тайл, у якому NPC був востаннє (для трафіку)
 }
 
@@ -73,7 +75,7 @@ function createNpcRt(capacity: number): NpcRt {
   return {
     phase: new Uint8Array(capacity), timer: new Uint16Array(capacity),
     workplace: new Int32Array(capacity).fill(-1), aux: new Int32Array(capacity).fill(-1),
-    path: new Array(capacity).fill(null), pathPos: new Uint16Array(capacity), tile: new Int32Array(capacity).fill(-1),
+    path: new Array(capacity).fill(null), pathPos: new Uint16Array(capacity), tile: new Int32Array(capacity).fill(-1), manual: new Uint8Array(capacity),
   };
 }
 
