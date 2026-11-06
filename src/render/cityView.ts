@@ -60,7 +60,8 @@ export class CityView {
   private frame = 0;
   private hover: Tile | null = null;
   private cam: Camera;
-  private drag: { x: number; y: number; moved: boolean; button: number } | null = null;
+  private drag: { x: number; y: number; sx: number; sy: number; moved: boolean; button: number; box: boolean; shift: boolean; pick: Sel | null } | null = null;
+  private boxEl = document.createElement('div');
   private rows: Obj[][] = Array.from({ length: NB }, () => []);
   private groundDirty = true;
 
@@ -104,6 +105,7 @@ export class CityView {
         if (r.ok) { this.deselect(); this.groundDirty = true; this.rebuild(); this.hud.say('Споруду знесено'); }
       },
     }, w, player, sector);
+    this.boxEl.id = 'selBox'; this.boxEl.hidden = true; document.body.appendChild(this.boxEl);
     const el = app.canvas;
     el.addEventListener('pointermove', this.move);
     el.addEventListener('pointerdown', this.down);
@@ -162,17 +164,24 @@ export class CityView {
     this.hud.update({ selected: this.sel, build: this.selected, following: this.following, speed: this.speed, actualSpeed: this.pacer.actual, speedLocked: !!this.net.locked });
   }
 
-  /** Що під курсором у режимі «вибір»: житель, потім споруда/дерево/камінь (за порядком малювання), потім дорога. */
-  private pickSel(e: PointerEvent): Sel | null {
-    const z = this.cam.zoom, pad = 4 / z;
+  /** Екранна позиція жителя (центр тіла) з урахуванням інтерполяції. */
+  private npcScreen(i: number): { x: number; y: number } {
+    const q = this.npcXY(i), hw = (NPC_TILES * TILE) / 2, iso = planeToIso(q.x * TILE, q.y * TILE, hw);
+    return { x: iso.x * this.cam.zoom + this.cam.x, y: iso.y * this.cam.zoom + this.cam.y };
+  }
+
+  /** Що під курсором у режимі «вибір»: житель (щедра зона влучання: рухомих важко ловити), потім споруда/дерево/камінь, потім дорога. */
+  private pickSel(e: { clientX: number; clientY: number }): Sel | null {
+    const z = this.cam.zoom;
     const p = { x: (e.clientX - this.cam.x) / z, y: (e.clientY - this.cam.y) / z };
     const n = this.w.state.npcs, hw = (NPC_TILES * TILE) / 2;
-    let best = -1, by = -Infinity;
+    // Екранні пікселі; на швидкій грі зона більша: жителі встигають втекти, поки рука доходить до кліку
+    const R = Math.max(14, hw * z * 1.8) + Math.min(60, this.speed * 4);
+    let best = -1, bd = Infinity;
     for (let i = 0; i < n.capacity; i++) {
       if (!n.alive[i] || n.sector[i] !== this.sector) continue;
-      const q = this.npcXY(i), px = q.x * TILE, py = q.y * TILE;
-      const body = planeToIso(px, py, hw * 1.6), base = planeToIso(px, py, 0);
-      if (Math.abs(p.x - body.x) <= hw + pad && p.y >= body.y - hw * 0.4 - pad && p.y <= base.y + hw * 0.4 + pad && base.y > by) { best = i; by = base.y; }
+      const s = this.npcScreen(i), d = Math.hypot(s.x - e.clientX, s.y - e.clientY);
+      if (d <= R && d < bd) { best = i; bd = d; }
     }
     if (best >= 0) return { t: 'npc', id: best };
     for (let r = NB - 1; r >= 0; r--) {
@@ -198,6 +207,10 @@ export class CityView {
     return { x: lerpPos(this.w.npc.px[i], n.x[i], a), y: lerpPos(this.w.npc.py[i], n.y[i], a) };
   }
   private posOf(sel: Sel): { x: number; y: number } | null {
+    if (sel.t === 'group') {
+      const ps = sel.items.map((i) => this.posOf(i)).filter((p): p is { x: number; y: number } => !!p);
+      return ps.length ? { x: ps.reduce((a, p) => a + p.x, 0) / ps.length, y: ps.reduce((a, p) => a + p.y, 0) / ps.length } : null;
+    }
     const p = selPos(this.w, this.sector, sel);
     return p && sel.t === 'npc' ? this.npcXY(sel.id) : p;
   }
@@ -213,12 +226,15 @@ export class CityView {
   };
 
   private move = (e: PointerEvent): void => {
-    if (this.drag && this.drag.button !== 2) {
-      const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
-      if (this.drag.moved || Math.abs(dx) + Math.abs(dy) > 4) {
-        if (!this.drag.moved && this.following) { this.following = false; this.refreshHud(); } // ручний пан знімає стеження
-        this.drag.moved = true; this.cam.x += dx; this.cam.y += dy;
-        this.drag.x = e.clientX; this.drag.y = e.clientY; this.applyCam();
+    const d = this.drag;
+    if (d) {
+      const dx = e.clientX - d.x, dy = e.clientY - d.y;
+      if (d.box) { // рамка виділення (LMB у режимі «вибір»)
+        if (d.moved || Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 4) { d.moved = true; this.showBox(d.sx, d.sy, e.clientX, e.clientY); }
+      } else if (d.moved || Math.abs(dx) + Math.abs(dy) > 4) { // пан: ПКМ/СКМ (або ЛКМ у режимі будівництва)
+        if (!d.moved && this.following) { this.following = false; this.refreshHud(); } // ручний пан знімає стеження
+        d.moved = true; this.cam.x += dx; this.cam.y += dy;
+        d.x = e.clientX; d.y = e.clientY; this.applyCam();
       }
     }
     if (this.selected) { this.hover = this.pickTile(e); this.hoverSel = null; this.app.canvas.style.cursor = 'crosshair'; }
@@ -228,18 +244,73 @@ export class CityView {
       this.app.canvas.style.cursor = this.hoverSel ? 'pointer' : 'default';
     }
   };
-  private down = (e: PointerEvent): void => { this.drag = { x: e.clientX, y: e.clientY, moved: false, button: e.button }; };
+  private down = (e: PointerEvent): void => {
+    try { this.app.canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const box = e.button === 0 && !this.selected;
+    // Що було під курсором у момент натискання: житель встигає втекти до відпускання (особливо на 2×–100×)
+    this.drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false, button: e.button, box, shift: e.shiftKey, pick: box ? this.pickSel(e) : null };
+  };
+  private showBox(x0: number, y0: number, x1: number, y1: number): void {
+    const b = this.boxEl.style;
+    this.boxEl.hidden = false;
+    b.left = `${Math.min(x0, x1)}px`; b.top = `${Math.min(y0, y1)}px`; b.width = `${Math.abs(x1 - x0)}px`; b.height = `${Math.abs(y1 - y0)}px`;
+  }
+  /** Виділення рамкою за екранними позиціями. Пріоритет: жителі, інакше споруди, інакше ресурси. */
+  private boxSelect(x0: number, y0: number, x1: number, y1: number, additive: boolean): void {
+    const r = { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0: Math.min(y0, y1), y1: Math.max(y0, y1) };
+    const n = this.w.state.npcs, z = this.cam.zoom;
+    let items: Sel[] = [];
+    for (let i = 0; i < n.capacity; i++) {
+      if (!n.alive[i] || n.sector[i] !== this.sector) continue;
+      const s = this.npcScreen(i);
+      if (s.x >= r.x0 && s.x <= r.x1 && s.y >= r.y0 && s.y <= r.y1) items.push({ t: 'npc', id: i });
+    }
+    if (!items.length) { // споруди: габарит силуету перетинає рамку
+      for (const row of this.rows) for (const o of row) {
+        if (o.sel?.t !== 'building' || !o.pick) continue;
+        let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+        for (let k = 0; k < o.pick.length; k += 2) { a = Math.min(a, o.pick[k]); c = Math.max(c, o.pick[k]); b = Math.min(b, o.pick[k + 1]); d = Math.max(d, o.pick[k + 1]); }
+        if (c * z + this.cam.x >= r.x0 && a * z + this.cam.x <= r.x1 && d * z + this.cam.y >= r.y0 && b * z + this.cam.y <= r.y1) items.push(o.sel);
+      }
+    }
+    if (!items.length) { // ресурси: центр у рамці (не більше 200)
+      for (const row of this.rows) for (const o of row) {
+        if (o.sel?.t !== 'node' || !o.pick || items.length >= 200) continue;
+        let cx = 0, cy = 0;
+        for (let k = 0; k < o.pick.length; k += 2) { cx += o.pick[k]; cy += o.pick[k + 1]; }
+        cx = (cx / (o.pick.length / 2)) * z + this.cam.x; cy = (cy / (o.pick.length / 2)) * z + this.cam.y;
+        if (cx >= r.x0 && cx <= r.x1 && cy >= r.y0 && cy <= r.y1) items.push(o.sel);
+      }
+    }
+    if (additive && this.sel && items.length) { // Shift: додати до поточного виділення (того ж класу)
+      const cur = this.sel.t === 'group' ? this.sel.items : [this.sel];
+      if (cur[0].t === items[0].t) {
+        const seen = new Set(cur.map((i) => JSON.stringify(i)));
+        items = [...cur, ...items.filter((i) => !seen.has(JSON.stringify(i)))];
+      }
+    }
+    if (!items.length) { if (!additive) this.deselect(); return; }
+    this.select(items.length === 1 ? items[0] : { t: 'group', items }, false);
+  }
+
   private up = (e: PointerEvent): void => {
     const d = this.drag; this.drag = null;
-    if (!d || d.moved) return;
+    this.boxEl.hidden = true;
+    if (!d) return;
+    if (d.box && d.moved) { this.boxSelect(d.sx, d.sy, e.clientX, e.clientY, e.shiftKey || d.shift); return; }
+    if (d.moved) return;
     if (d.button === 2) { // ПКМ: скасувати будівництво або виділення
       if (this.selected) this.setBuild(null); else this.deselect();
       return;
     }
     if (d.button !== 0) return;
-    if (!this.selected) { // режим «вибір»
-      const s = this.pickSel(e);
-      if (s) this.select(s, false); else this.deselect();
+    if (!this.selected) { // режим «вибір»; житель, що був під курсором при натисканні, має пріоритет
+      const s = d.pick?.t === 'npc' ? d.pick : this.pickSel(e);
+      if (s && (e.shiftKey || d.shift) && this.sel && this.sel.t === s.t) { // Shift+клік додає
+        const cur = this.sel.t === 'group' ? this.sel.items : [this.sel];
+        const key = JSON.stringify(s);
+        this.select({ t: 'group', items: cur.some((i) => JSON.stringify(i) === key) ? cur.filter((i) => JSON.stringify(i) !== key) : [...cur, s] }, false);
+      } else if (s) this.select(s, false); else this.deselect();
       return;
     }
     const t = this.pickTile(e);
@@ -512,6 +583,7 @@ export class CityView {
     const pos = this.posOf(sel);
     if (!pos) return;
     const g = this.hoverG, st = { width: 2, color, alpha };
+    if (sel.t === 'group') { for (const i of sel.items.slice(0, 200)) this.frame_(i, color, alpha); return; }
     if (sel.t === 'npc') {
       const c = planeToIso(pos.x * TILE, pos.y * TILE, 0), hw = (NPC_TILES * TILE) / 2;
       g.ellipse(c.x, c.y, hw * 1.7, hw * 0.85).stroke(st);
@@ -554,6 +626,7 @@ export class CityView {
     this.app.canvas.style.cursor = '';
     this.app.stage.removeChild(this.root);
     this.root.destroy({ children: true });
+    this.boxEl.remove();
     this.hud.destroy();
   }
 }

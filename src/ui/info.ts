@@ -9,7 +9,9 @@ export type Sel =
   | { t: 'npc'; id: number }
   | { t: 'building'; id: number }
   | { t: 'node'; cx: number; cy: number }
-  | { t: 'road'; x: number; y: number };
+  | { t: 'road'; x: number; y: number }
+  /** Виділення рамкою: кілька об'єктів одного класу (жителі, споруди або ресурси). */
+  | { t: 'group'; items: Sel[] };
 
 export const BUILD_NAMES: Partial<Record<BuildingKind, string>> = {
   townhall: 'Ратуша', warehouse: 'Склад', lumberjack: 'Лісоруб', quarry: 'Кар’єр', sawmill: 'Лісопильня', farm: 'Ферма', hunter: 'Мисливець', house: 'Будинок',
@@ -50,6 +52,8 @@ export interface Info {
   kind: string; // тип об'єкта (підзаголовок)
   rows: [string, string][];
   workers?: { id: number; name: string; state: string }[];
+  /** Для групи: клікабельний список складових. */
+  items?: { sel: Sel; text: string }[]; itemsTitle?: string;
   /** Позиція в тайлах (для камери й рамки). */
   pos: { x: number; y: number };
   /** Для жителя: куди можна призначити (вільні місця) і чи можна зняти з роботи. */
@@ -73,6 +77,10 @@ export function selPos(w: SimWorld, sector: number, sel: Sel): { x: number; y: n
     case 'building': { const b = w.byId.get(sel.id); return b ? { x: b.cell.x + b.size.w / 2, y: b.cell.y + b.size.h / 2 } : null; }
     case 'node': { const t = nodeTile(w.state.world.seed, sector, sel.cx, sel.cy); return { x: t.x + 0.5, y: t.y + 0.5 }; }
     case 'road': return { x: sel.x + 0.5, y: sel.y + 0.5 };
+    case 'group': {
+      const ps = sel.items.map((i) => selPos(w, sector, i)).filter((p): p is { x: number; y: number } => !!p);
+      return ps.length ? { x: ps.reduce((a, p) => a + p.x, 0) / ps.length, y: ps.reduce((a, p) => a + p.y, 0) / ps.length } : null;
+    }
   }
 }
 
@@ -80,6 +88,7 @@ export function selPos(w: SimWorld, sector: number, sel: Sel): { x: number; y: n
 export function describeSel(w: SimWorld, player: string, sector: number, sel: Sel): Info | null {
   const pos = selPos(w, sector, sel);
   if (!pos) return null;
+  if (sel.t === 'group') return describeGroup(w, player, sector, sel.items, pos);
   if (sel.t === 'npc') {
     const r = residents(w, player).find((x) => x.id === sel.id);
     if (!r) return null;
@@ -146,6 +155,39 @@ export function describeSel(w: SimWorld, player: string, sector: number, sel: Se
       ],
     };
   }
+  if (sel.t !== 'road') return null;
   const rt = getSectorRt(w, sector), st = rt.stage[sel.y * SECTOR_SIZE + sel.x];
   return { title: STAGE_TXT[st] ? STAGE_TXT[st][0].toUpperCase() + STAGE_TXT[st].slice(1) : 'Земля', kind: st ? 'Дорога' : 'Земля', rows: [['Тайл', `${sel.x}, ${sel.y}`]], pos };
+}
+
+const tally = (xs: string[]): string => {
+  const m = new Map<string, number>();
+  for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1);
+  return [...m].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ×${v}`).join(', ');
+};
+
+/** Зведення по виділеній рамкою групі: скільки їх, види/стани, список для вибору одного. */
+function describeGroup(w: SimWorld, player: string, sector: number, items: Sel[], pos: { x: number; y: number }): Info | null {
+  const live = items.filter((i) => selPos(w, sector, i));
+  if (!live.length) return null;
+  const first = live[0].t, rows: [string, string][] = [], list: { sel: Sel; text: string }[] = [];
+  if (first === 'npc') {
+    const res = new Map(residents(w, player).map((r) => [r.id, r]));
+    const rs = live.map((i) => res.get((i as { id: number }).id)).filter((r): r is Resident => !!r);
+    rows.push(['Жителів', String(rs.length)], ['Професії', tally(rs.map((r) => PROF_TXT[r.profession] ?? r.profession))], ['Стани', tally(rs.map((r) => STATE_TXT[r.state] ?? r.state))]);
+    for (const r of rs) list.push({ sel: { t: 'npc', id: r.id }, text: `${nameOf(w, r.id)} · ${PROF_TXT[r.profession] ?? r.profession}: ${stateText(r)}` });
+  } else if (first === 'building') {
+    const bs = live.map((i) => w.byId.get((i as { id: number }).id)).filter((b): b is NonNullable<typeof b> => !!b);
+    rows.push(['Споруд', String(bs.length)], ['Види', tally(bs.map((b) => BUILD_NAMES[b.kind] ?? b.kind))]);
+    const cap = bs.reduce((a, b) => a + slotsOf(b), 0);
+    if (cap) rows.push(['Працівники', `${bs.reduce((a, b) => a + b.workers.length, 0)}/${cap}`]);
+    for (const b of bs) list.push({ sel: { t: 'building', id: b.id }, text: `${BUILD_NAMES[b.kind] ?? b.kind} #${b.id}: ${b.progress < 1 ? `будується ${Math.round(b.progress * 100)}%` : `працівників ${b.workers.length}/${slotsOf(b)}`}` });
+  } else {
+    const rt = getSectorRt(w, sector);
+    const kinds = live.map((i) => (i.t === 'node' ? (rt.kind[i.cy * SECTOR_CELLS + i.cx] === NODE_TREE ? 'Дерево' : 'Камінь') : '?'));
+    rows.push(['Ресурсів', String(live.length)], ['Види', tally(kinds)]);
+    live.forEach((i, k) => list.push({ sel: i, text: `${kinds[k]} (${i.t === 'node' ? `${i.cx}, ${i.cy}` : ''})` }));
+  }
+  const title = first === 'npc' ? 'Виділено жителів' : first === 'building' ? 'Виділено споруд' : 'Виділено ресурсів';
+  return { title: `${title}: ${live.length}`, kind: 'Група (клікни рядок, щоб вибрати одного)', rows, pos, items: list.slice(0, 120), itemsTitle: 'Склад групи' };
 }

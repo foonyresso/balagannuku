@@ -44,3 +44,5 @@
 #slotNum { display: inline-block; min-width: 3.5em; text-align: center; font-variant-numeric: tabular-nums; }
 #peopleFilter button { min-width: 8.5em; font-variant-numeric: tabular-nums; }
 #cityBack { white-space: nowrap; }
+#selBox { position: fixed; z-index: 5; pointer-events: none; border: 1px solid #ffd54f; background: rgba(255, 213, 79, 0.12); }
+#selBox[hidden] { display: none; }
