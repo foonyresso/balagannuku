@@ -395,7 +395,7 @@ describe('економіка', () => {
   });
 
   it('стежки: трафік росте, стадія підіймається, потім згасає', () => {
-    const w = setup();
+    const w = setup(2);
     const lj = place(w, 'lumberjack', 36, 30);
     staffBuilding(w, 'p', lj.id);
     run(w, 1500);
