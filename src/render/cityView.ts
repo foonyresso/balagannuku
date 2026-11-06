@@ -237,7 +237,7 @@ export class CityView {
     if (d.button !== 0) return;
     if (!this.selected) { // режим «вибір»
       const s = this.pickSel(e);
-      if (s) this.select(s, s.t === 'npc'); else this.deselect();
+      if (s) this.select(s, false); else this.deselect();
       return;
     }
     const t = this.pickTile(e);
@@ -416,10 +416,8 @@ export class CityView {
       const ok = !fp || checkPlace(this.w, this.sector, this.selected, t.x, t.y) === null;
       if (fp) {
         const bk = Math.min(NB - 1, Math.max(0, Math.floor((t.y + fp.h - 1) / BUCKET)));
-        this.ghost.show(this.root, this.rowNpc[bk], bk, t, fp, TILE, BUILD_H[this.selected] ?? 16, BUILD_COLORS[this.selected] ?? 0xffffff, ok);
+        this.ghost.show(this.root, this.ground, this.rowNpc[bk], bk, t, fp, TILE, BUILD_H[this.selected] ?? 16, BUILD_COLORS[this.selected] ?? 0xffffff, ok);
       }
-      this.hoverG.poly(this.quad(t.x, t.y, fp?.w ?? 1, fp?.h ?? 1))
-        .fill({ color: ok ? 0x66ff66 : 0xff5050, alpha: 0.25 }).stroke({ width: 1.5, color: ok ? 0xaaffaa : 0xff8080 });
     }
     if (this.hoverSel && !(this.sel && JSON.stringify(this.sel) === JSON.stringify(this.hoverSel))) this.frame_(this.hoverSel, 0xffffff, 0.5);
     if (this.sel) this.frame_(this.sel, 0xffd54f, 1);
@@ -514,12 +512,13 @@ export class CityView {
   }
 
   /** Для автотестів: стан вибору й екранні координати об'єктів. */
-  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
+  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; layers: { ground: number; base: number; ghost: number; hover: number }; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
     const scr = (x: number, y: number, z: number) => { const i = planeToIso(x * TILE, y * TILE, z); return { sx: i.x * this.cam.zoom + this.cam.x, sy: i.y * this.cam.zoom + this.cam.y }; };
     const n = this.w.state.npcs, npcs: { id: number; sx: number; sy: number }[] = [];
     for (let i = 0; i < n.capacity; i++) if (n.alive[i] && n.sector[i] === this.sector) npcs.push({ id: i, ...scr(this.npcXY(i).x, this.npcXY(i).y, 3) });
     const buildings = this.w.state.buildings.map((b) => ({ id: b.id, kind: b.kind, ...scr(b.cell.x + b.size.w / 2, b.cell.y + b.size.h / 2, 6) }));
-    return { build: this.selected, sel: this.sel, following: this.following, ghost: this.ghost.g.visible && !!this.ghost.g.parent, speed: this.speed, tick: this.w.state.tick, zoom: this.cam.zoom, npcs, buildings };
+    return { build: this.selected, sel: this.sel, following: this.following, ghost: this.ghost.g.visible && !!this.ghost.g.parent,
+      layers: { ground: this.root.getChildIndex(this.ground), base: this.ghost.base.parent ? this.root.getChildIndex(this.ghost.base) : -1, ghost: this.ghost.g.parent ? this.root.getChildIndex(this.ghost.g) : -1, hover: this.root.getChildIndex(this.hoverG) }, speed: this.speed, tick: this.w.state.tick, zoom: this.cam.zoom, npcs, buildings };
   }
 
   destroy(): void {

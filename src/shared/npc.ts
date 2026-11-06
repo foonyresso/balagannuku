@@ -1,10 +1,10 @@
 /** Ідентичність і характеристики NPC (структура під майбутні імена, стати й перки; поки лише базові множники). */
 
 /** Стати в відсотках (100 = норма), окрім rare — шанс рідкісного ресурсу у проміле. Масив stats: capacity * NPC_STAT_COUNT. */
-export const NPC_STATS = ['walk', 'carry', 'gather', 'rare'] as const;
+export const NPC_STATS = ['walk', 'carry', 'gather', 'rare', 'size'] as const;
 export type NpcStat = (typeof NPC_STATS)[number];
 export const NPC_STAT_COUNT = NPC_STATS.length;
-export const NPC_STAT_BASE: readonly number[] = [100, 100, 100, 0];
+export const NPC_STAT_BASE: readonly number[] = [100, 100, 100, 0, 2]; // size — ширина в тайлах: 1 малий (пролазить у прохід 1 тайл), 2 стандартний
 export const statIndex = (s: NpcStat): number => NPC_STATS.indexOf(s);
 
 /** Перки — біти маски NpcStore.perks (поки без ефекту, крім заготовки під множники). */
