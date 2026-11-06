@@ -4,6 +4,7 @@ import type {
 } from '../shared';
 import { BORDER_CELLS, NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, isActiveCell, isActiveTile, stageFromTraffic } from '../shared';
 import { hash2 } from './rng';
+import { fillWater, nearestShore } from './water';
 import { refreshClear } from './clear';
 import { genNode, mixNodeSeed } from './nodegen';
 import { NPC_CAPACITY, STONE_AMOUNT, TREE_AMOUNT } from './balance';
@@ -25,7 +26,8 @@ export interface SectorRt {
   trails: TrailLayer; // трафік по тайлах
   stage: Uint8Array; // стадія стежки по тайлах
   cellStage: Uint8Array; // макс. стадія тайлів у клітинці (для вартості A*)
-  occ: Uint8Array; // тайл зайнятий footprint будівлі
+  occ: Uint8Array; // тайл зайнятий footprint будівлі (а також вода й неактивна смуга)
+  water: Uint8Array; // тайл: 1 = вода (озеро/річка), похідне від seed; водночас occ=1
   blocked1: Uint8Array; // клітинка без вільних вузлів для малого NPC (1 тайл)
   blocked2: Uint8Array; // клітинка без вільних вузлів для стандартного NPC (2 тайли)
   kind: Uint8Array; // клітинка: вид вузла ресурсу (похідний від seed)
@@ -117,7 +119,7 @@ export function getSectorRt(w: SimWorld, id: number): SectorRt {
   const sec = w.state.sectors[id];
   const nc = C * C, nt = T * T;
   rt = {
-    id, trails: createTrailLayer(), stage: new Uint8Array(nt), cellStage: new Uint8Array(nc), occ: new Uint8Array(nt),
+    id, trails: createTrailLayer(), stage: new Uint8Array(nt), cellStage: new Uint8Array(nc), occ: new Uint8Array(nt), water: new Uint8Array(nt),
     blocked1: new Uint8Array(nc), blocked2: new Uint8Array(nc), kind: new Uint8Array(nc), amount: new Uint8Array(nc), forest: new Uint8Array(nc), claimBy: new Int32Array(nc), buildings: [],
   };
   if (sec.trails) rt.trails.traffic = unpack(sec.trails);
@@ -142,6 +144,27 @@ export function getSectorRt(w: SimWorld, id: number): SectorRt {
   refreshClear(rt.occ, rt.blocked1, rt.blocked2, 0, C - 1, C - 1 - BORDER_CELLS, C - 1);
   refreshClear(rt.occ, rt.blocked1, rt.blocked2, 0, BORDER_CELLS, 0, C - 1);
   refreshClear(rt.occ, rt.blocked1, rt.blocked2, C - 1 - BORDER_CELLS, C - 1, 0, C - 1);
+  // вода: непрохідна, будувати не можна; вузли ресурсів у воді прибираємо
+  if (fillWater(w.state.world.seed, rt.water, T) > 0) {
+    const dirty = new Uint8Array(nc);
+    for (let y = 0; y < T; y++) {
+      for (let x = 0; x < T; x++) {
+        if (!rt.water[y * T + x]) continue;
+        rt.occ[y * T + x] = 1;
+        const cx = (x / TPC) | 0, cy = (y / TPC) | 0;
+        for (let dy = -1; dy <= 0; dy++) for (let dx = -1; dx <= 0; dx++) if (cx + dx >= 0 && cy + dy >= 0) dirty[(cy + dy) * C + cx + dx] = 1;
+      }
+    }
+    for (let cy = 0; cy < C; cy++) for (let cx = 0; cx < C; cx++) if (dirty[cy * C + cx]) refreshClear(rt.occ, rt.blocked1, rt.blocked2, cx, cx, cy, cy);
+    for (let cy = 0; cy < C; cy++) {
+      for (let cx = 0; cx < C; cx++) {
+        const i = cy * C + cx;
+        if (!rt.kind[i]) continue;
+        const nt = nodeTile(w.state.world.seed, id, cx, cy);
+        if (rt.water[nt.y * T + nt.x]) { rt.kind[i] = 0; rt.amount[i] = 0; rt.forest[i] = 0; }
+      }
+    }
+  }
   for (let i = 0; i < nt; i++) {
     const st = stageFromTraffic(rt.trails.traffic[i]);
     rt.stage[i] = st;
@@ -230,4 +253,14 @@ export function deserialize(s: SerializedGameState): SimWorld {
     for (const id of b.workers) w.npc.workplace[id] = b.id;
   }
   return w;
+}
+
+/** Контракт для економіки: чи вода в тайлі (x, y) сектора. Поза картою — false. */
+export function isWaterTile(w: SimWorld, sector: number, x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= T || y >= T) return false;
+  return getSectorRt(w, sector).water[y * T + x] === 1;
+}
+/** Найближчий до (x, y) берег (сухий вільний тайл поруч із водою) у радіусі maxR тайлів + тайл води, на який він дивиться. */
+export function shoreNear(w: SimWorld, sector: number, x: number, y: number, maxR = 64) {
+  return nearestShore(getSectorRt(w, sector), T, x, y, maxR);
 }

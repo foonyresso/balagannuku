@@ -238,9 +238,9 @@ describe('економіка', () => {
     expect(checkPlace(w, 0, 'house', wh.cell.x + wh.size.w - 1, wh.cell.y)).toBe('occupied');
     expect(checkPlace(w, 0, 'house', -1, 5)).toBe('invalid');
     const rt = getSectorRt(w, 0);
-    expect(rt.occ.reduce((a, v) => a + v, 0) - BORDER_OCC).toBe(t.size.w * t.size.h + wh.size.w * wh.size.h);
+    expect(rt.occ.reduce((a, v) => a + v, 0) - BORDER_OCC - rt.water.reduce((a, v) => a + v, 0)).toBe(t.size.w * t.size.h + wh.size.w * wh.size.h);
     applyCommand(w, { player: 'p', seq: 3, cmd: { type: 'demolish_building', building: wh.id } });
-    expect(rt.occ.reduce((a, v) => a + v, 0) - BORDER_OCC).toBe(t.size.w * t.size.h);
+    expect(rt.occ.reduce((a, v) => a + v, 0) - BORDER_OCC - rt.water.reduce((a, v) => a + v, 0)).toBe(t.size.w * t.size.h);
   });
 
   it('стежки по тайлах: ходіння лишає вузький слід, стадії — по тайлах', () => {

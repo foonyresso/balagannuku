@@ -71,6 +71,7 @@ export class CityView {
     this.surroundings = new Surroundings(app.renderer, w.state.world.seed, w.state.sectors[sector]);
     this.root.addChild(this.surroundings.back);
     this.root.addChild(this.ground);
+    this.drawWater();
     for (let r = 0; r < NB; r++) {
       const o = new Graphics(), n = new Graphics();
       this.rowObj.push(o); this.rowNpc.push(n);
@@ -271,6 +272,25 @@ export class CityView {
   }
 
   /** Земля й стежки: «пензель» шириною за стадією (стежка вузька, вимощена дорога широка). */
+  /** Вода: світла берегова смуга + темніша глибина (тайли, всі сусіди яких теж вода); горизонтальні серії зливаємо в один прямокутник. */
+  private drawWater(): void {
+    const rt = getSectorRt(this.w, this.sector), g = new Graphics(), T = SECTOR_SIZE, wt = rt.water;
+    const runs = (deep: boolean, color: number, alpha: number) => {
+      for (let y = ACTIVE_MIN_TILE; y < ACTIVE_MAX_TILE; y++) {
+        let x0 = -1;
+        for (let x = ACTIVE_MIN_TILE; x <= ACTIVE_MAX_TILE; x++) {
+          const i = y * T + x;
+          const on = x < ACTIVE_MAX_TILE && wt[i] === 1 && (!deep || (wt[i - 1] === 1 && wt[i + 1] === 1 && wt[i - T] === 1 && wt[i + T] === 1));
+          if (on && x0 < 0) x0 = x;
+          else if (!on && x0 >= 0) { g.poly(this.quad(x0, y, x - x0, 1)).fill({ color, alpha }); x0 = -1; }
+        }
+      }
+    };
+    runs(false, 0x8fd0e0, 0.9);
+    runs(true, 0x2f78b0, 0.9);
+    this.root.addChild(g);
+  }
+
   /** Туман неактивної смуги: ступінчасте затемнення до краю карти (поверх лісу й каміння). */
   private drawFog(): void {
     const g = new Graphics(), A = ACTIVE_MIN_TILE, Z = ACTIVE_MAX_TILE, n = 8, step = A / n;

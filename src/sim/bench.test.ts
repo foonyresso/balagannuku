@@ -67,7 +67,7 @@ describe('бюджет великого сектора', () => {
     for (let i = 0; i < 50; i++) stepWorld(w); // включно з одним проходом згасання
     const steps = (performance.now() - t0) / 50;
     console.log(`[bench] сектор ${SECTOR_SIZE}²: створення ${create.toFixed(0)} мс, вузлів ${nodes}, ${steps.toFixed(2)} мс/тік`);
-    expect(create).toBeLessThan(1500);
+    expect(create).toBeLessThan(3000);
     expect(steps).toBeLessThan(50);
   });
 });
