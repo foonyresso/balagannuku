@@ -51,7 +51,7 @@ describe('економіка', () => {
     expect(f.byBuilding[sm.id].consumed.wood).toBe((f.byBuilding[sm.id].produced.planks ?? 0) * 2);
     expect(hall(w).stock.planks ?? 0).toBeGreaterThan(planks0);
     expect(f.edges[`${lj.id}>${hall(w).id}:wood`]).toBeGreaterThan(0);
-    expect(f.edges[`${hall(w).id}>${sm.id}:wood`]).toBeGreaterThan(0);
+    expect((f.edges[`${hall(w).id}>${sm.id}:wood`] ?? 0) + (f.edges[`${lj.id}>${sm.id}:wood`] ?? 0)).toBeGreaterThan(0);
     expect(wood0).toBeGreaterThan(0);
   });
 
@@ -61,6 +61,47 @@ describe('економіка', () => {
     staffBuilding(w, 'p', q.id);
     run(w, 1200);
     expect(w.state.flows.total.byBuilding[q.id]?.produced.stone ?? 0).toBeGreaterThan(0);
+  });
+
+  it('логістика: лісоруб несе колоди прямо на ближчу лісопилку, а не на склад', () => {
+    const w = setup();
+    const sm = place(w, 'sawmill', 33, 31);
+    const lj = place(w, 'lumberjack', 36, 31);
+    staffBuilding(w, 'p', lj.id, 2);
+    staffBuilding(w, 'p', sm.id, 1);
+    run(w, 600);
+    const e = w.state.flows.total.edges;
+    expect(e[`${lj.id}>${sm.id}:wood`] ?? 0).toBeGreaterThan(0);
+    expect(sm.stock.wood ?? 0).toBeLessThanOrEqual(15);
+  });
+
+  it('логістика: повна лісопилка — колоди йдуть на склад', () => {
+    const w = setup();
+    const sm = place(w, 'sawmill', 33, 31);
+    const lj = place(w, 'lumberjack', 36, 31);
+    sm.stock.wood = 15;
+    staffBuilding(w, 'p', lj.id, 2);
+    run(w, 400);
+    const e = w.state.flows.total.edges;
+    expect(e[`${lj.id}>${sm.id}:wood`] ?? 0).toBe(0);
+    expect(e[`${lj.id}>${hall(w).id}:wood`] ?? 0).toBeGreaterThan(0);
+  });
+
+  it('ресурси безкінечні: камінь не вичерпується, дерева відростають', () => {
+    const w = setup();
+    const rt = getSectorRt(w, 0);
+    const stones = rt.kind.reduce((a, k) => a + (k === 2 ? 1 : 0), 0);
+    const q = place(w, 'quarry', 30, 40);
+    staffBuilding(w, 'p', q.id);
+    run(w, 3000);
+    const got = w.state.flows.total.byBuilding[q.id].produced.stone ?? 0;
+    expect(stones).toBeGreaterThan(0);
+    expect(got).toBeGreaterThan(100);
+    const before = got;
+    hall(w).stock.stone = 0; // склад був повний
+    run(w, 600);
+    expect(w.state.flows.total.byBuilding[q.id].produced.stone ?? 0).toBeGreaterThan(before);
+    expect(rt.kind.reduce((a, k) => a + (k === 2 ? 1 : 0), 0)).toBe(stones); // вузли лишаються
   });
 
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {
