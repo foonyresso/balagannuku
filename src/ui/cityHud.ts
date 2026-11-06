@@ -104,7 +104,7 @@ export class CityHud {
     };
     on('button[data-pause]', () => { const id = this.lastSelBuilding; if (id !== null) hooks.pause(id); });
     // Рядки списків/працівників спрацьовують на pointerdown: вміст оновлюється, і click може не дійти.
-    const pick = (sel: Sel) => hooks.select(sel, sel.t === 'npc');
+    const pick = (sel: Sel) => hooks.select(sel, false);
     on('[data-body=people] .row', (r) => {
       const id = Number(r.dataset.key);
       if (this.assignTarget !== null) { hooks.assign(id, this.assignTarget); this.assignTarget = null; this.update(this.st); return; }

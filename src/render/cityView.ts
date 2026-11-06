@@ -242,7 +242,7 @@ export class CityView {
     if (d.button !== 0) return;
     if (!this.selected) { // режим «вибір»
       const s = this.pickSel(e);
-      if (s) this.select(s, s.t === 'npc'); else this.deselect();
+      if (s) this.select(s, false); else this.deselect();
       return;
     }
     const t = this.pickTile(e);

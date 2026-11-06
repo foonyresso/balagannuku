@@ -68,9 +68,14 @@ const check = (name, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', name
   await p.mouse.click(npc.sx, npc.sy);
   s = await st();
   check('клік по жителю виділяє його', s.sel && s.sel.t === 'npc', JSON.stringify(s.sel));
-  check('стеження увімкнено', s.following);
+  check('камера НЕ слідує за виділеним за замовчуванням', !s.following && s.zoom === z0, String(s.zoom));
+  const cam0 = await p.evaluate(() => window.__city.debugState().npcs.length && JSON.stringify(window.__city.debugState().buildings[0]));
+  await p.waitForTimeout(1500);
+  check('камера не рухається сама', JSON.stringify((await st()).buildings[0]) === cam0);
+  await p.click('#infoFollow'); // необов'язкове стеження вмикається кнопкою
   await p.waitForTimeout(1500);
   s = await st();
+  check('кнопка «Слідкувати» вмикає стеження', s.following);
   const me = s.npcs.find((n) => n.id === s.sel.id);
   check('камера наблизилась', s.zoom > z0 && s.zoom > 3, String(s.zoom));
   check('житель біля центру екрана', Math.abs(me.sx - 640) < 40 && Math.abs(me.sy - 400) < 40, JSON.stringify(me));
