@@ -29,7 +29,7 @@ function build(total: number, sectors: number): SimWorld {
     };
     const wh = put('warehouse');
     w.state.buildings[w.state.buildings.length - 1].stock = { wood: 300 };
-    const lj = Math.ceil(perSector / 8 / 2), qr = Math.ceil(perSector / 8 / 3), sm = Math.ceil(perSector / 4 / 6);
+    const lj = Math.ceil((perSector * 0.4) / 2), qr = Math.ceil((perSector * 0.3) / 4), sm = Math.ceil((perSector * 0.3) / 2); // за слотами
     const jobs = [...Array(lj).fill('lumberjack'), ...Array(qr).fill('quarry'), ...Array(sm).fill('sawmill')] as ('lumberjack' | 'quarry' | 'sawmill')[];
     const made = jobs.map((k) => put(k));
     for (let k = 0; k < perSector && w.state.npcs.count < total; k++) spawnNpc(w, 0, s, wh.entrance.x, wh.entrance.y);

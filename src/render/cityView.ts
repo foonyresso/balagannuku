@@ -337,7 +337,7 @@ export class CityView {
       const rate = ratePerSec(this.w, b.id, 'produced', out);
       const starved = this.w.state.flows.last.byBuilding[b.id]?.starved ?? 0;
       const why = starved > 20 ? ` — простій: ${WHY[this.w.why.get(b.id) ?? ''] ?? '?'}` : '';
-      const txt = `${BUILD_NAMES[b.kind]} #${b.id} (${b.workers.length}/${MAX_WORKERS[b.kind]}): ${RES_NAMES[out]} ${rate.toFixed(2)}/с${why}${b.roadAttached ? ' 🛣' : ''}`;
+      const txt = `${BUILD_NAMES[b.kind]} #${b.id} — працівників ${b.workers.length}/${MAX_WORKERS[b.kind]}, ефективність ${Math.round((b.workers.length / (MAX_WORKERS[b.kind] ?? 1)) * 100)}%: ${RES_NAMES[out]} ${rate.toFixed(2)}/с${why}${b.roadAttached ? ' 🛣' : ''}`;
       if (r.text.textContent !== txt) r.text.textContent = txt;
       r.text.classList.toggle('bad', starved > 20);
       if (r.btn) { const l = b.paused ? '▶ Пуск' : '⏸ Пауза'; if (r.btn.textContent !== l) r.btn.textContent = l; }
