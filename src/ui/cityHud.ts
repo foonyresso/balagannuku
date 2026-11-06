@@ -73,6 +73,7 @@ export class CityHud {
         <table id="infoRows"></table>
         <div id="infoSlots" hidden><span>Працівники</span><button data-slot="-">−</button><b id="slotNum"></b><button data-slot="+">+</button></div>
         <div id="infoWorkers"></div>
+        <div id="infoItems"></div>
         <div id="infoAssign"></div>
         <div class="acts"><button id="infoFollow"></button><button id="infoFree" hidden>Звільнити з роботи</button><button data-pause hidden></button><button id="infoDemolish" hidden>Знести</button></div>
       </div>
@@ -118,6 +119,7 @@ export class CityHud {
     on('#infoAssign button', (b) => { const id = this.lastNpc; if (id !== null) hooks.assign(id, Number(b.dataset.b)); });
     this.$('#infoFree').onclick = () => { if (this.lastNpc !== null) hooks.unassign(this.lastNpc); };
     on('[data-body=prod] .row', (r) => pick({ t: 'building', id: Number(r.dataset.key) }), 'pointerdown');
+    on('#infoItems .row', (r) => hooks.select(JSON.parse(r.dataset.sel!) as Sel, false), 'pointerdown');
     on('#infoWorkers .row', (r) => pick({ t: 'npc', id: Number(r.dataset.key) }), 'pointerdown');
     this.showTab();
   }
@@ -216,7 +218,7 @@ export class CityHud {
     this.lastSelBuilding = info?.building ?? null;
     this.lastNpc = info?.npc ?? null;
     if (!info) { this.infoSig = ''; this.assignTarget = null; return; }
-    const sig = JSON.stringify([info.title, info.kind, info.rows, info.workers, info.warn, info.assign, info.canUnassign, info.slots]);
+    const sig = JSON.stringify([info.title, info.kind, info.rows, info.workers, info.items, info.warn, info.assign, info.canUnassign, info.slots]);
     if (sig !== this.infoSig) {
       this.infoSig = sig;
       this.$('#infoTitle').textContent = info.title;
@@ -226,6 +228,11 @@ export class CityHud {
       wk.innerHTML = info.workers ? `<h4>Працівники</h4>` + (info.workers.length ? '' : '<div class="none">немає</div>') : '';
       for (const x of info.workers ?? []) {
         const d = document.createElement('div'); d.className = 'row'; d.dataset.key = String(x.id); d.textContent = `${x.name}: ${x.state}`; wk.append(d);
+      }
+      const it = this.$('#infoItems');
+      it.innerHTML = info.items ? `<h4>${info.itemsTitle ?? ''}</h4>` : '';
+      for (const x of info.items ?? []) {
+        const d = document.createElement('div'); d.className = 'row'; d.dataset.sel = JSON.stringify(x.sel); d.textContent = x.text; it.append(d);
       }
       box.classList.toggle('bad', !!info.warn);
       const asg = this.$('#infoAssign');
