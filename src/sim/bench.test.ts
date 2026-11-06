@@ -1,0 +1,56 @@
+import { describe, expect, it } from 'vitest';
+import { RESOURCE_KINDS, SECTOR_SIZE, type PlayerState } from '../shared';
+import { applyCommand, createWorld, getSectorRt, spawnNpc, staffBuilding, stepWorld, type SimWorld } from './index';
+import { mulberry32 } from './rng';
+
+const player: PlayerState = {
+  id: 'p', nickname: 'p', token: 'p', color: 1, homeSector: 0, ownedSectors: [],
+  resources: Object.fromEntries(RESOURCE_KINDS.map((k) => [k, 0])) as PlayerState['resources'],
+};
+
+/** Світ із `total` працівниками, розкиданими по `sectors` секторах (по ~total/sectors на сектор). */
+function build(total: number, sectors: number): SimWorld {
+  const w = createWorld(42, [{ ...player, ownedSectors: [] }]);
+  w.freeBuild = true;
+  const rnd = mulberry32(1);
+  const perSector = Math.ceil(total / sectors);
+  for (let s = 0; s < sectors; s++) {
+    w.state.sectors[s].owner = 'p';
+    const rt = getSectorRt(w, s);
+    const put = (kind: 'warehouse' | 'lumberjack' | 'quarry' | 'sawmill') => {
+      for (let t = 0; t < 500; t++) {
+        const x = 2 + Math.floor(rnd() * (SECTOR_SIZE - 4)), y = 2 + Math.floor(rnd() * (SECTOR_SIZE - 5));
+        const i = y * SECTOR_SIZE + x;
+        if (rt.blocked[i] || rt.blocked[i + SECTOR_SIZE] || rt.kind[i] || rt.kind[i + SECTOR_SIZE]) continue;
+        if (applyCommand(w, { player: 'p', seq: 0, cmd: { type: 'place_building', kind, sector: s, cell: { x, y } } }).ok) {
+          return w.state.buildings[w.state.buildings.length - 1];
+        }
+      }
+      throw new Error('немає місця');
+    };
+    const wh = put('warehouse');
+    w.state.buildings[w.state.buildings.length - 1].stock = { wood: 300 };
+    const lj = Math.ceil(perSector / 8 / 2), qr = Math.ceil(perSector / 8 / 3), sm = Math.ceil(perSector / 4 / 6);
+    const jobs = [...Array(lj).fill('lumberjack'), ...Array(qr).fill('quarry'), ...Array(sm).fill('sawmill')] as ('lumberjack' | 'quarry' | 'sawmill')[];
+    const made = jobs.map((k) => put(k));
+    for (let k = 0; k < perSector && w.state.npcs.count < total; k++) spawnNpc(w, 0, s, wh.entrance.x, wh.entrance.y);
+    for (const b of made) staffBuilding(w, 'p', b.id);
+  }
+  return w;
+}
+
+function bench(total: number, sectors: number, ticks: number) {
+  const w = build(total, sectors);
+  for (let i = 0; i < 50; i++) stepWorld(w); // прогрів
+  const t0 = performance.now();
+  for (let i = 0; i < ticks; i++) stepWorld(w);
+  const ms = (performance.now() - t0) / ticks;
+  const working = w.npc.workplace.reduce((a, v) => a + (v >= 0 ? 1 : 0), 0);
+  console.log(`[bench] ${w.state.npcs.count} NPC (${working} на роботі), ${sectors} секторів: ${ms.toFixed(2)} мс/тік (бюджет 100 мс при 10 Гц)`);
+  return ms;
+}
+
+describe('бенчмарк симуляції', () => {
+  it('500 NPC', () => { expect(bench(500, 4, 200)).toBeLessThan(100); });
+  it('2000 NPC', () => { expect(bench(2000, 8, 200)).toBeLessThan(100); });
+});

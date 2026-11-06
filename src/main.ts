@@ -5,6 +5,8 @@ import { canClaimStart, claimStart, createInitialState, DEFAULT_WORLD_RADIUS, SE
 import { mulberry32 } from './sim/rng';
 import { mountLobby } from './ui';
 import { ClientSession, HostSession, mkPlayer, type MapState } from './net';
+import { CityView } from './render/cityView';
+import { startCity, wrapState, type SimWorld } from './sim';
 
 declare global { interface Window { __appStarted?: boolean; __showError?: (where: string, e: unknown) => void } }
 window.__appStarted = true;
@@ -79,6 +81,7 @@ view.blocked = (id) => !canClaimStart(state, me, id).ok;
 const myPlayer = () => state.players.find((p) => p.id === me);
 
 view.onHover = (id, x, y) => {
+  if (city) return;
   if (id === null) { tip.style.display = 'none'; return; }
   const s = state.sectors[id];
   const rows = SECTOR_RESOURCES.map(({ kind }) => {
@@ -107,6 +110,7 @@ view.onClick = (id) => {
   const r = host ? host.claim(me, id) : claimStart(state, me, id);
   status.textContent = r.ok ? 'Стартовий сектор обрано!' : REASONS[r.reason];
   view.redraw();
+  onSession();
 };
 
 function placeBot(): void {
@@ -116,8 +120,22 @@ function placeBot(): void {
   if (id !== undefined) claimStart(state, 'bot1', id);
 }
 
+// Етап економіки (поки лише соло): вигляд міста домашнього сектора.
+let city: CityView | null = null;
+let sim: SimWorld | null = null;
+const cityBtn = $<HTMLButtonElement>('enterCity');
+const exitCity = () => { city?.destroy(); city = null; view.world.visible = true; $('hud').style.display = ''; };
+cityBtn.onclick = () => {
+  const home = myPlayer()?.homeSector;
+  if (home === null || home === undefined || netRole !== 'solo') return;
+  if (!sim) { sim = wrapState(state as never); startCity(sim, me); }
+  view.world.visible = false; tip.style.display = 'none'; $('hud').style.display = 'none';
+  city = new CityView(app, sim, me, home, exitCity);
+};
+
 onSession = () => {
   const mine = myPlayer();
+  cityBtn.style.display = netRole === 'solo' && mine?.homeSector != null ? '' : 'none';
   if (lastResult) { status.textContent = lastResult; lastResult = ''; }
   else if (mine?.homeSector === null) status.textContent = 'Обери стартовий сектор';
   else if (mine) status.textContent = 'Стартовий сектор обрано!';
@@ -129,6 +147,8 @@ onSession = () => {
 
 function reset(): void {
   if (netRole !== 'solo') return;
+  exitCity();
+  sim = null;
   state = newWorld(Math.floor(Math.random() * 1e9));
   status.textContent = 'Обери стартовий сектор';
   placeBot();
