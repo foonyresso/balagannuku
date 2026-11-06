@@ -20,7 +20,7 @@ export const HOUSE_SPAWN_INTERVAL = 200;
 export const POP_BASE = 5;
 export const POP_PER_HOUSE = 4;
 export const START_SETTLERS = 5;
-export const START_STOCK: Partial<Record<ResourceKind, number>> = { wood: 40, stone: 10, planks: 10 };
+export const START_STOCK: Partial<Record<ResourceKind, number>> = { wood: 40, stone: 10, planks: 10, food: 30 };
 
 export const STORAGE_CAP: Partial<Record<BuildingKind, number>> = { townhall: 1e9, warehouse: 400 } // ратуша (головний склад) безкінечна; підсклад має буфер, який носії розвантажують;
 export const COSTS: Partial<Record<BuildingKind, Partial<Record<ResourceKind, number>>>> = {
@@ -29,15 +29,16 @@ export const COSTS: Partial<Record<BuildingKind, Partial<Record<ResourceKind, nu
   quarry: { wood: 8 },
   sawmill: { wood: 10, stone: 5 },
   house: { planks: 5 },
+  farm: { wood: 10, planks: 2 },
 };
 /** Слоти працівників на будівлю. Продуктивність = частка зайнятих слотів (кожен працівник працює сам), окремої формули немає. */
-export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 2, quarry: 4, sawmill: 2, warehouse: 4 };
+export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 2, quarry: 4, sawmill: 2, warehouse: 4, farm: 3 };
 /** Типова кількість працівників: решта будівель заповнюється повністю, підсклад — лише за командою гравця. */
 export const DEFAULT_WORKERS: Partial<Record<BuildingKind, number>> = { warehouse: 0 };
 /** Ноша носія підскладу за рейс (більша за звичайну). */
 export const CARRIER_CAP = 12;
 export const JOB_OF: Partial<Record<BuildingKind, Profession>> = {
-  lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer', warehouse: 'carrier',
+  lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer', warehouse: 'carrier', farm: 'farmer',
 };
 
 /** Резерв дерева на складах: переробка (лісопильня) не бере й не приймає дерево, поки на складах менше. Будівництво важливіше. */
@@ -58,6 +59,7 @@ export const FOOTPRINT: Partial<Record<BuildingKind, { w: number; h: number }>> 
   quarry: { w: 8, h: 8 },
   sawmill: { w: 10, h: 10 },
   house: { w: 6, h: 6 },
+  farm: { w: 10, h: 10 },
 };
 /** Візуальний розмір у тайлах (без жорсткої колізії): NPC 2×2, дерево 3×3, камінь 4×4. */
 export const NPC_TILES = 2, TREE_TILES = 3, STONE_TILES = 4;
@@ -70,3 +72,12 @@ export const PLACE_MARGIN = 1;
  * слабкий ≈ 460 (≈ 38 хв гри при 10 Гц), стежка ≈ 690, дорога ≈ 4600, вимощена ≈ 35000 (кілька діб гри). Без ходіння все одно заростає.
  */
 export const TRAIL_DECAY_BY_STAGE = [0.0015, 0.001, 0.00015, 0.00002] as const;
+
+/**
+ * Їжа й голод. Ситість 0..FULL_MAX спадає на 1 кожні HUNGER_INTERVAL тіків (з повної до EAT_BELOW ≈ 600 тіків).
+ * Нижче EAT_BELOW NPC між діями йде до найближчого складу з їжею й з'їдає 1 од. (+FOOD_RESTORE).
+ * Нижче HUNGRY_BELOW працює повільніше (HUNGRY_MULT); на 0 без їжі не працює (фермер лише сповільнюється, щоб не було глухого кута).
+ */
+export const FULL_MAX = 100, HUNGER_INTERVAL = 12, EAT_BELOW = 50, HUNGRY_BELOW = 30, FOOD_RESTORE = 50, HUNGRY_MULT = 0.5;
+/** Ферма: одна од. їжі за FARM_TICKS роботи, фермер несе до FARM_CARRY за рейс. */
+export const FARM_TICKS = 150, FARM_CARRY = 4;

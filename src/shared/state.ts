@@ -98,11 +98,13 @@ export interface NpcStore {
   stats: Uint8Array;
   /** Маска перків (PERKS). */
   perks: Uint16Array;
+  /** Ситість 0..100 (0 = голодує: не працює). Спадає з часом, відновлюється їжею зі складу. */
+  fullness: Uint8Array;
 }
 
 export const INVENTORY_SLOTS = 8;
 export const EQUIPMENT_SLOTS = 4; // голова, тіло, зброя, щит
-export const PROFESSIONS: readonly Profession[] = ['idle', 'lumberjack', 'miner', 'carrier', 'smith', 'hero', 'sawyer'];
+export const PROFESSIONS: readonly Profession[] = ['idle', 'lumberjack', 'miner', 'carrier', 'smith', 'hero', 'sawyer', 'farmer'];
 export const TASKS = ['idle', 'walk', 'work', 'carry', 'rest', 'dungeon'] as const;
 
 /** Серіалізований NpcStore: кожен typed array -> PackedArray. */

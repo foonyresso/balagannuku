@@ -12,12 +12,12 @@ export type Sel =
   | { t: 'road'; x: number; y: number };
 
 export const BUILD_NAMES: Partial<Record<BuildingKind, string>> = {
-  townhall: 'Ратуша', warehouse: 'Склад', lumberjack: 'Лісоруб', quarry: 'Кар’єр', sawmill: 'Лісопильня', house: 'Будинок',
+  townhall: 'Ратуша', warehouse: 'Склад', lumberjack: 'Лісоруб', quarry: 'Кар’єр', sawmill: 'Лісопильня', farm: 'Ферма', house: 'Будинок',
 };
-export const RES_NAMES: Record<string, string> = { wood: 'Дерево', stone: 'Камінь', planks: 'Дошки' };
+export const RES_NAMES: Record<string, string> = { wood: 'Дерево', stone: 'Камінь', planks: 'Дошки', food: 'Їжа' };
 export const WHY: Record<string, string> = {
   no_node: 'немає дерев/каменю в секторі', no_storage: 'немає куди віднести (склад?)', storage_full: 'склад повний',
-  no_wood: 'немає вільного дерева (резерв під будівництво)', no_path: 'немає шляху', paused: 'на паузі',
+  no_wood: 'немає вільного дерева (резерв під будівництво)', no_path: 'немає шляху', no_food: 'немає їжі (голод)', paused: 'на паузі',
 };
 export const STATE_TXT: Record<string, string> = {
   free: 'чекає роботу', to_node: 'іде до дерева/каменю', working: 'добуває ресурс', to_home: 'несе сировину до хатинки', processing: 'обтесує',
@@ -28,7 +28,7 @@ export const PROF_TXT: Record<string, string> = {
   idle: 'без роботи', lumberjack: 'лісоруб', miner: 'каменяр', sawyer: 'пильщик', carrier: 'носій', smith: 'коваль', hero: 'герой',
 };
 export const STAGE_TXT = ['', 'витоптана стежка', 'дорога', 'вимощена дорога'];
-const OUT: Partial<Record<BuildingKind, 'wood' | 'stone' | 'planks'>> = { lumberjack: 'wood', quarry: 'stone', sawmill: 'planks' };
+const OUT: Partial<Record<BuildingKind, 'wood' | 'stone' | 'planks' | 'food'>> = { lumberjack: 'wood', quarry: 'stone', sawmill: 'planks', farm: 'food' };
 
 const STAT_TXT: Record<string, string> = { walk: 'Швидкість ходьби', carry: 'Вантажопідйомність', gather: 'Швидкість добування', rare: 'Шанс рідкісного ресурсу' };
 const PERK_TXT: Record<string, string> = { swift: 'Швидкоходик', porter: 'Носій', woodcutter: 'Лісоруб від природи', stonecutter: 'Каменяр від природи', lucky: 'Щасливчик' };

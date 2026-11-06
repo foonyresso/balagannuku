@@ -15,18 +15,22 @@ import {
 } from './world';
 import { autoStaffIdle } from './assign';
 import { hash2 } from './rng';
-import { NPC_STAT_COUNT, statIndex } from '../shared';
+import { FLOW_PEOPLE, NPC_STAT_COUNT, statIndex } from '../shared';
+import { EAT_BELOW, FARM_CARRY, FARM_TICKS, FOOD_RESTORE, FULL_MAX, HUNGER_INTERVAL, HUNGRY_BELOW, HUNGRY_MULT } from './balance';
 
 const ST_WALK = statIndex('walk'), ST_CARRY = statIndex('carry'), ST_GATHER = statIndex('gather');
 /** Множник NPC за статом (1 = норма). */
+/** Ефективність від голоду: ситий 1, голодний HUNGRY_MULT (довше працює). */
+const hungerEff = (w: SimWorld, i: number): number => (w.state.npcs.fullness[i] < HUNGRY_BELOW ? HUNGRY_MULT : 1);
 const mul = (w: SimWorld, i: number, s: number): number => w.state.npcs.stats[i * NPC_STAT_COUNT + s] / 100;
 import { spawnNpc } from './npcs';
 
 // Фази NPC
-export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7, WALK_HOME: 8, WORK_HOME: 9, CARRY_PICK: 10, CARRY_DROP: 11 } as const;
-const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT, WALK_HOME, WORK_HOME, CARRY_PICK, CARRY_DROP } = PHASE;
+export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7, WALK_HOME: 8, WORK_HOME: 9, CARRY_PICK: 10, CARRY_DROP: 11, EAT: 12, FARM_WALK: 13, FARM_WORK: 14 } as const;
+const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT, WALK_HOME, WORK_HOME, CARRY_PICK, CARRY_DROP, EAT, FARM_WALK, FARM_WORK } = PHASE;
 const T = (n: (typeof TASKS)[number]) => TASKS.indexOf(n);
 const WOOD = RESOURCE_KINDS.indexOf('wood'), STONE = RESOURCE_KINDS.indexOf('stone'), PLANKS = RESOURCE_KINDS.indexOf('planks');
+const FARMER = PROFESSIONS.indexOf('farmer'), FOOD = RESOURCE_KINDS.indexOf('food');
 const CARRIER = PROFESSIONS.indexOf('carrier'), SAWYER = PROFESSIONS.indexOf('sawyer'), MINER = PROFESSIONS.indexOf('miner');
 
 const isStorage = (b: BuildingState) => b.kind === 'townhall' || b.kind === 'warehouse';
@@ -187,6 +191,8 @@ function planDeposit(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): vo
 
 function plan(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   const n = w.state.npcs, npc = w.npc;
+  if (n.fullness[i] < EAT_BELOW && planEat(w, i, rt, b)) return;
+  if (n.profession[i] === FARMER) return planFarmer(w, i, rt, b);
   if (n.profession[i] === CARRIER) return planCarrier(w, i, rt, b);
   if (n.profession[i] === SAWYER) return planSawyer(w, i, rt, b);
   if (n.carryAmount[i] > 0 && npc.stage[i] === 1) return planDeposit(w, i, rt, b); // оброблене -> споживач/склад
@@ -202,6 +208,29 @@ function plan(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   const nt = nodeTile(w.state.world.seed, rt.id, cell % CELLS, (cell / CELLS) | 0);
   if (!setPath(w, i, rt, nt.x, nt.y)) return wait(w, i, b, 'no_path');
   npc.aux[i] = cell; rt.claimBy[cell] = i + 1; npc.phase[i] = WALK_NODE; n.task[i] = T('walk');
+}
+
+/** Голодний NPC йде до найближчого складу з їжею. true — дію вибрано (іти їсти або чекати), false — планувати звичайно. */
+function planEat(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): boolean {
+  const n = w.state.npcs;
+  const st = nearestStorage(rt, b.owner, n.x[i], n.y[i], 'food', 1);
+  if (st) {
+    const sp = spotNear(rt, st, i);
+    if (!setPath(w, i, rt, sp.x, sp.y)) return false;
+    n.targetBuilding[i] = st.id; w.npc.phase[i] = EAT; n.task[i] = T('walk');
+    return true;
+  }
+  if (n.fullness[i] === 0 && n.profession[i] !== FARMER) { wait(w, i, b, 'no_food'); return true; }
+  return false;
+}
+
+/** Фермер: іде до ферми, працює на полі (1 од. їжі за FARM_TICKS), набравши FARM_CARRY — несе до найближчого приймача. */
+function planFarmer(w: SimWorld, i: number, rt: SectorRt, farm: BuildingState): void {
+  const n = w.state.npcs;
+  if (n.carryAmount[i] >= FARM_CARRY) return planDeposit(w, i, rt, farm);
+  const sp = spotNear(rt, farm, i);
+  if (!setPath(w, i, rt, sp.x, sp.y)) return wait(w, i, farm, 'no_path');
+  w.npc.phase[i] = FARM_WALK; n.task[i] = T('walk');
 }
 
 /** Найбільший запас у будівлі (вид ресурсу) або -1. */
@@ -263,7 +292,7 @@ function stepNpc(w: SimWorld, i: number): void {
       if (!advance(w, i, rt)) break;
       const c = npc.aux[i], nodeKind = n.profession[i] === MINER ? NODE_STONE : NODE_TREE;
       if (rt.kind[c] !== nodeKind) { npc.phase[i] = PLAN; break; }
-      npc.phase[i] = WORK_NODE; npc.timer[i] = Math.max(1, Math.round(workTicks(b, WORK_TICKS, richOf(w, b, n.profession[i])) / mul(w, i, ST_GATHER))); n.task[i] = T('work');
+      npc.phase[i] = WORK_NODE; npc.timer[i] = Math.max(1, Math.round(workTicks(b, WORK_TICKS, richOf(w, b, n.profession[i])) / (mul(w, i, ST_GATHER) * hungerEff(w, i)))); n.task[i] = T('work');
       break;
     }
     case WORK_NODE: {
@@ -278,7 +307,7 @@ function stepNpc(w: SimWorld, i: number): void {
     }
     case WALK_HOME: {
       if (!advance(w, i, rt)) break;
-      npc.phase[i] = WORK_HOME; npc.timer[i] = workTicks(b, PROCESS_TICKS, richOf(w, b, n.profession[i])); n.task[i] = T('work');
+      npc.phase[i] = WORK_HOME; npc.timer[i] = Math.round(workTicks(b, PROCESS_TICKS, richOf(w, b, n.profession[i])) / hungerEff(w, i)); n.task[i] = T('work');
       break;
     }
     case WORK_HOME: {
@@ -301,6 +330,31 @@ function stepNpc(w: SimWorld, i: number): void {
         }
       }
       if (n.carryAmount[i] === 0) { n.carryKind[i] = 255; npc.stage[i] = 0; npc.phase[i] = PLAN; } else wait(w, i, b, 'storage_full');
+      break;
+    }
+    case EAT: {
+      if (!advance(w, i, rt)) break;
+      const st = w.byId.get(n.targetBuilding[i]);
+      if (st && stockOf(st, 'food') >= 1) {
+        st.stock.food = stockOf(st, 'food') - 1;
+        n.fullness[i] = Math.min(FULL_MAX, n.fullness[i] + FOOD_RESTORE);
+        flowConsume(w, st.id, 'food', 1); flowEdge(w, st.id, FLOW_PEOPLE, 'food', 1);
+      }
+      npc.phase[i] = PLAN;
+      break;
+    }
+    case FARM_WALK: {
+      if (!advance(w, i, rt)) break;
+      npc.phase[i] = FARM_WORK; n.task[i] = T('work');
+      npc.timer[i] = Math.max(1, Math.round(workTicks(b, FARM_TICKS) / (mul(w, i, ST_GATHER) * hungerEff(w, i))));
+      break;
+    }
+    case FARM_WORK: {
+      if (--npc.timer[i] > 0) break;
+      w.why.delete(b.id);
+      n.carryKind[i] = FOOD; n.carryAmount[i]++; npc.stage[i] = 0;
+      flowProduce(w, b.id, 'food', 1); flowEdge(w, 0, b.id, 'food', 1);
+      npc.phase[i] = PLAN;
       break;
     }
     case CARRY_PICK: {
@@ -363,7 +417,7 @@ function stepNpc(w: SimWorld, i: number): void {
 function startMill(w: SimWorld, i: number, mill: BuildingState): void {
   const n = w.state.npcs, npc = w.npc;
   if (!mill.paused && stockOf(mill, 'wood') >= 2) {
-    npc.phase[i] = WORK_MILL; npc.timer[i] = workTicks(mill, MILL_TICKS); n.task[i] = T('work');
+    npc.phase[i] = WORK_MILL; npc.timer[i] = Math.round(workTicks(mill, MILL_TICKS) / hungerEff(w, i)); n.task[i] = T('work');
     return;
   }
   const planks = stockOf(mill, 'planks');
@@ -459,6 +513,7 @@ export function stepWorld(w: SimWorld): void {
   s.tick++;
   const cap = n.capacity;
   for (let i = 0; i < cap; i++) if (n.alive[i]) stepNpc(w, i);
+  if (s.tick % HUNGER_INTERVAL === 0) for (let i = 0; i < cap; i++) if (n.alive[i] && n.fullness[i] > 0) n.fullness[i]--;
   if (s.tick % TRAIL_DECAY_INTERVAL === 0) decayTrails(w);
   if (s.tick % ROAD_CHECK_INTERVAL === 0) updateRoadAttached(w);
   if (s.tick % TREE_REGROW_INTERVAL === 0) regrow(w);
