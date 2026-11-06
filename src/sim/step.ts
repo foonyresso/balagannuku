@@ -428,6 +428,7 @@ export function stepWorld(w: SimWorld): void {
   const s = w.state, n = s.npcs;
   w.events = [];
   w.stageChanges.length = 0;
+  w.npc.px.set(n.x); w.npc.py.set(n.y); // «попередня» позиція для інтерполяції в рендері
   s.tick++;
   const cap = n.capacity;
   for (let i = 0; i < cap; i++) if (n.alive[i]) stepNpc(w, i);

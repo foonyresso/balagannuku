@@ -14,6 +14,7 @@ export function spawnNpc(w: SimWorld, ownerIdx: number, sector: number, cx: numb
   let sx = Math.min(T - 1, Math.max(0, cx + jx)), sy = Math.min(T - 1, cy + jy);
   if (getSectorRt(w, sector).occ[sy * T + sx]) { sx = Math.min(T - 1, cx); sy = Math.min(T - 1, cy); }
   n.sector[i] = sector; n.x[i] = sx + 0.5; n.y[i] = sy + 0.5;
+  w.npc.px[i] = n.x[i]; w.npc.py[i] = n.y[i]; // поява без «прослизання» з попереднього місця слота
   n.profession[i] = 0; n.task[i] = TASKS.indexOf('idle'); n.targetBuilding[i] = -1;
   n.owner[i] = ownerIdx; n.hp[i] = 100; n.level[i] = 1;
   n.carryKind[i] = 255; n.carryAmount[i] = 0;
