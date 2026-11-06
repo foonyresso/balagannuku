@@ -11,6 +11,7 @@ export type Command =
   | { type: 'demolish_building'; building: BuildingId }
   | { type: 'assign_worker'; npc: NpcId; profession: Profession; building: BuildingId | null }
   | { type: 'unassign_worker'; npc: NpcId }
+  | { type: 'set_building_paused'; building: BuildingId; paused: boolean }
   | { type: 'transfer_item'; from: NpcId; to: NpcId; slot: number }
   | { type: 'equip_item'; npc: NpcId; slot: number; equipSlot: number }
   | { type: 'set_trail_overlay_hint'; sector: SectorId }; // тільки UI-підказка, стан не змінює

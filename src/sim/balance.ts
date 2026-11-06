@@ -32,3 +32,6 @@ export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 
 export const JOB_OF: Partial<Record<BuildingKind, Profession>> = {
   lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer',
 };
+
+/** Резерв дерева на складах: переробка (лісопильня) не бере й не приймає дерево, поки на складах менше. Будівництво важливіше. */
+export const WOOD_RESERVE = 10;

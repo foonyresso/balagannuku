@@ -4,7 +4,7 @@ import {
   TRAIL_DECAY_INTERVAL, TRAIL_MAX, TRAIL_STEP_ADD, TrailStage, stageFromTraffic,
 } from '../shared';
 import {
-  ATTACHED_WORK_MULT, CARRY_CAP, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
+  ATTACHED_WORK_MULT, CARRY_CAP, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, WOOD_RESERVE, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
   ROAD_CHECK_INTERVAL, STONE_AMOUNT, STORAGE_CAP, TREE_AMOUNT, TREE_REGROW_INTERVAL, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
 } from './balance';
 import { flowConsume, flowEdge, flowProduce, flowStarve, rollFlowWindow } from './flow';
@@ -39,10 +39,20 @@ function nearestStorage(rt: SectorRt, owner: string, x: number, y: number, kind:
  * Куди віднести ресурс: найближча будівля, що його приймає й має вільне місце — споживач
  * (лісопильня з буфером колод) або склад. При рівній відстані споживач має перевагу.
  */
+/** Дерево на складах гравця в секторі. */
+function storageWood(rt: SectorRt, owner: string): number {
+  let t = 0;
+  for (const b of rt.buildings) if (isStorage(b) && b.owner === owner) t += stockOf(b, 'wood');
+  return t;
+}
+
 function nearestAcceptor(rt: SectorRt, owner: string, x: number, y: number, kind: ResourceKind): BuildingState | null {
   let best: BuildingState | null = null, bd = Infinity;
+  const reserveOk = kind !== 'wood' || storageWood(rt, owner) >= WOOD_RESERVE;
   for (const b of rt.buildings) {
     if (b.owner !== owner || b.progress < 1 || stockOf(b, kind) >= capOf(b, kind)) continue;
+    // Переробка після будівництва: на паузі або при дефіциті дерева на складі колоди їй не несуть.
+    if (!isStorage(b) && (b.paused || !reserveOk)) continue;
     if (!isStorage(b) && b.workers.length === 0) continue;
     const d = Math.abs(b.entrance.x - x) + Math.abs(b.entrance.y - y) - (isStorage(b) ? 0 : 0.5);
     if (d < bd) { bd = d; best = b; }
@@ -116,11 +126,11 @@ const workTicks = (b: BuildingState, base: number, richness = 0.5) =>
 const richOf = (w: SimWorld, b: BuildingState, prof: number) =>
   w.state.sectors[b.sector].richness[prof === MINER ? 'stone' : 'wood'] ?? 0.5;
 
-function wait(w: SimWorld, i: number, b: BuildingState): void {
+function wait(w: SimWorld, i: number, b: BuildingState, starve = true): void {
   w.npc.phase[i] = WAIT; w.npc.timer[i] = WAIT_TICKS;
   w.state.npcs.task[i] = T('rest');
   w.npc.path[i] = null;
-  flowStarve(w, b.id);
+  if (starve) flowStarve(w, b.id);
 }
 
 function planDeposit(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
@@ -145,12 +155,13 @@ function planSawyer(w: SimWorld, i: number, rt: SectorRt, mill: BuildingState): 
   const n = w.state.npcs, npc = w.npc;
   const carry = n.carryAmount[i] > 0 ? n.carryKind[i] : -1;
   if (carry === PLANKS) return planDeposit(w, i, rt, mill);
+  if (mill.paused && carry < 0 && stockOf(mill, 'planks') === 0) return wait(w, i, mill, false);
   if (carry === WOOD || stockOf(mill, 'wood') >= 2 || stockOf(mill, 'planks') > 0) {
     if (!setPath(w, i, rt, mill.entrance.x, mill.entrance.y)) return wait(w, i, mill);
     npc.phase[i] = WALK_MILL; n.task[i] = T('walk');
     return;
   }
-  const st = nearestStorage(rt, mill.owner, n.x[i], n.y[i], 'wood', 2);
+  const st = nearestStorage(rt, mill.owner, n.x[i], n.y[i], 'wood', 2 + WOOD_RESERVE);
   if (!st || !setPath(w, i, rt, st.entrance.x, st.entrance.y)) return wait(w, i, mill);
   n.targetBuilding[i] = st.id;
   npc.phase[i] = WALK_TAKE; n.task[i] = T('walk');
@@ -206,8 +217,9 @@ function stepNpc(w: SimWorld, i: number): void {
       if (!advance(w, i, rt)) break;
       const st = w.byId.get(n.targetBuilding[i]);
       const have = st ? stockOf(st, 'wood') : 0;
-      if (!st || have < 2) { npc.phase[i] = PLAN; wait(w, i, b); break; }
-      const take = Math.min(Math.max(2, MILL_BUFFER - stockOf(b, 'wood')), have);
+      const usable = have - WOOD_RESERVE; // решта — резерв під будівництво
+      if (!st || usable < 2 || b.paused) { npc.phase[i] = PLAN; wait(w, i, b); break; }
+      const take = Math.min(Math.max(2, MILL_BUFFER - stockOf(b, 'wood')), usable);
       st.stock.wood = have - take;
       n.carryKind[i] = WOOD; n.carryAmount[i] = take;
       npc.aux[i] = st.id;
@@ -238,7 +250,7 @@ function stepNpc(w: SimWorld, i: number): void {
 
 function startMill(w: SimWorld, i: number, mill: BuildingState): void {
   const n = w.state.npcs, npc = w.npc;
-  if (stockOf(mill, 'wood') >= 2) {
+  if (!mill.paused && stockOf(mill, 'wood') >= 2) {
     npc.phase[i] = WORK_MILL; npc.timer[i] = workTicks(mill, MILL_TICKS); n.task[i] = T('work');
     return;
   }

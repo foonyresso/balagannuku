@@ -35,9 +35,19 @@ export function startCity(w: SimWorld, playerId: string): BuildingState | null {
   return hall;
 }
 
-function canPay(w: SimWorld, owner: string, cost: Partial<Record<ResourceKind, number>>): boolean {
-  return Object.entries(cost).every(([k, v]) => total(w, owner, k as ResourceKind) >= (v ?? 0));
+/** Чи можна побудувати: що саме бракує (для підказки в UI). Перший лісоруб гравця безкоштовний — страховка від глухого кута. */
+export function buildCheck(w: SimWorld, player: string, kind: BuildingKind): { ok: boolean; free: boolean; missing: Partial<Record<ResourceKind, number>> } {
+  const cost = COSTS[kind];
+  if (!cost) return { ok: false, free: false, missing: {} };
+  const free = w.freeBuild || (kind === 'lumberjack' && !w.state.buildings.some((b) => b.owner === player && b.kind === 'lumberjack'));
+  const missing: Partial<Record<ResourceKind, number>> = {};
+  if (!free) for (const [k, v] of Object.entries(cost)) {
+    const lack = (v ?? 0) - total(w, player, k as ResourceKind);
+    if (lack > 0) missing[k as ResourceKind] = lack;
+  }
+  return { ok: Object.keys(missing).length === 0, free, missing };
 }
+
 function total(w: SimWorld, owner: string, k: ResourceKind): number {
   let t = 0;
   for (const b of w.state.buildings) if (b.owner === owner && STORAGE_CAP[b.kind]) t += b.stock[k] ?? 0;
@@ -88,10 +98,9 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
       const rt = getSectorRt(w, cmd.sector);
       const free = (i: number) => !rt.blocked[i] && rt.kind[i] === NODE_NONE;
       if (!free(y * S + x) || rt.blocked[(y + 1) * S + x]) return no('occupied');
-      if (!w.freeBuild) {
-        if (!canPay(w, player, cost)) return no('no_resources');
-        pay(w, player, cost);
-      }
+      const chk = buildCheck(w, player, cmd.kind);
+      if (!chk.ok) return no('no_resources');
+      if (!chk.free) pay(w, player, cost);
       const b = addBuilding(w, cmd.kind, player, cmd.sector, x, y);
       w.events.push({ e: 'building_placed', building: b.id });
       syncPlayerResources(w);
@@ -121,6 +130,14 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
       b.workers.push(cmd.npc);
       w.npc.workplace[cmd.npc] = b.id;
       w.state.npcs.profession[cmd.npc] = PROFESSIONS.indexOf(cmd.profession);
+      return { ok: true };
+    }
+    case 'set_building_paused': {
+      const b = w.byId.get(cmd.building);
+      if (!b) return no('invalid');
+      if (b.owner !== player) return no('not_owner');
+      if (b.kind !== 'sawmill') return no('invalid'); // лише переробники
+      b.paused = cmd.paused;
       return { ok: true };
     }
     case 'unassign_worker':
