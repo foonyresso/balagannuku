@@ -1,6 +1,6 @@
 import {
   MAX_PLAYERS, NET_PROTOCOL_VERSION,
-  type ClientMessage, type HostMessage, type LobbyPlayer, type PlayerId, type SerializedGameState,
+  type ClientMessage, type HostMessage, type LobbyPlayer, type PlayerId, type PlayerState, type SerializedGameState,
 } from '../shared';
 import type { HostSideConn } from './types';
 
@@ -18,12 +18,19 @@ const newToken = (): string =>
 /** Хост-авторитетне лобі: приймає join, видає id/токени, розсилає список гравців. */
 export class HostLobby {
   private slots: Slot[] = [];
-  private snapshot: SerializedGameState | null = null;
+  private snapshot: (() => SerializedGameState) | null = null;
   onChange: (players: LobbyPlayer[]) => void = () => {};
   onMessage: (player: PlayerId, msg: ClientMessage) => void = () => {};
 
   constructor(readonly roomCode: string, hostNickname: string) {
     this.slots.push({ id: 'p1', nickname: hostNickname, token: newToken(), conn: null, isHost: true });
+  }
+
+  /** «Продовжити»: слоти з гравців сейва (перший — хост); повернення — за токеном. */
+  static fromPlayers(roomCode: string, players: Pick<PlayerState, 'id' | 'nickname' | 'token'>[]): HostLobby {
+    const lobby = new HostLobby(roomCode, players[0].nickname);
+    lobby.slots = players.map((p, i) => ({ id: p.id, nickname: p.nickname, token: p.token, conn: null, isHost: i === 0 }));
+    return lobby;
   }
 
   get hostPlayer(): PlayerId { return this.slots[0].id; }
@@ -75,12 +82,12 @@ export class HostLobby {
   }
 
   private sendWelcome(slot: Slot): void {
-    if (this.snapshot && slot.conn) slot.conn.send({ t: 'welcome', player: slot.id, token: slot.token, snapshot: this.snapshot });
+    if (this.snapshot && slot.conn) slot.conn.send({ t: 'welcome', player: slot.id, token: slot.token, snapshot: this.snapshot() });
   }
 
   /** Гра стартувала: надсилає welcome усім підключеним; пізні гравці отримають його одразу. */
-  startGame(snapshot: SerializedGameState): void {
-    this.snapshot = snapshot;
+  startGame(snapshot: SerializedGameState | (() => SerializedGameState)): void {
+    this.snapshot = typeof snapshot === 'function' ? snapshot : () => snapshot;
     this.slots.forEach((s) => this.sendWelcome(s));
   }
 

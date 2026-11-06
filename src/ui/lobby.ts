@@ -1,5 +1,7 @@
 import type { LobbyPlayer } from '../shared';
-import { ClientLobby, HostLobby, connectToRoom, isValidRoomCode, normalizeRoomCode, openRoom } from '../net';
+import type { GameState } from '../shared';
+import { loadState, pickSaveFile } from '../persist';
+import { ClientLobby, HostLobby, type JoinResult, connectToRoom, isValidRoomCode, normalizeRoomCode, openRoom } from '../net';
 
 const CSS = `
 .lb{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1420;z-index:10;font-family:sans-serif;color:#eee}
@@ -16,8 +18,9 @@ const CSS = `
 export interface LobbyHandle { destroy(): void }
 export interface LobbyCallbacks {
   /** Хост натиснув «Почати»: лобі й список гравців. */
-  onHostStart?: (lobby: HostLobby) => void;
-  onJoined?: (client: ClientLobby) => void;
+  /** loaded — стан із сейва («Продовжити»), інакше нова гра. */
+  onHostStart?: (lobby: HostLobby, loaded?: GameState) => void;
+  onJoined?: (client: ClientLobby, res: Extract<JoinResult, { ok: true }>) => void;
 }
 
 export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
@@ -53,7 +56,7 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
       <button id="new">Нова гра</button>
       <input id="code" placeholder="Код кімнати" maxlength="5" style="text-transform:uppercase">
       <button id="join" class="sec">Приєднатися за кодом</button>
-      <button id="cont" class="sec" disabled title="Скоро">Продовжити з сейва</button>
+      <button id="cont" class="sec">Продовжити з сейва</button>
       <div class="err" id="err"></div>`);
     const err = (m: string) => { q('#err').textContent = m; };
     const name = () => { const n = q<HTMLInputElement>('#nick').value.trim() || 'Гравець'; try { localStorage.setItem('balagannuku.nick', n); } catch { /* ignore */ } return n; };
@@ -66,6 +69,19 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
         hostView(lobby);
       } catch { err('Не вдалося створити кімнату (немає зв’язку з сервером).'); }
     };
+    q('#cont').onclick = async () => {
+      try {
+        const save = await pickSaveFile();
+        if (!save) return;
+        const loaded = loadState(save);
+        if (!loaded.players.length) return err('У сейві немає гравців.');
+        err('Створюю кімнату…');
+        let lobby!: HostLobby;
+        const { code } = await openRoom((c) => lobby.accept(c));
+        lobby = HostLobby.fromPlayers(code, loaded.players);
+        hostView(lobby, loaded);
+      } catch (e) { err(e instanceof Error ? e.message : 'Не вдалося прочитати сейв.'); }
+    };
     q('#join').onclick = async () => {
       const code = normalizeRoomCode(q<HTMLInputElement>('#code').value);
       if (!isValidRoomCode(code)) return err('Невірний код кімнати.');
@@ -75,18 +91,18 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
         const client = new ClientLobby(conn);
         client.onLobby = (ps) => { setBox(`<h2>Кімната ${code}</h2><ul>${list(ps)}</ul><div>Чекаємо старту від хоста…</div>`); };
         const res = await client.join(code, name());
-        if (res.ok) cb.onJoined?.(client);
+        if (res.ok) cb.onJoined?.(client, res);
         else { client.close(); err(REASONS[res.reason] ?? 'Помилка входу.'); }
       } catch { err('Кімнату не знайдено або немає зв’язку.'); }
     };
   };
 
-  const hostView = (lobby: HostLobby) => {
+  const hostView = (lobby: HostLobby, loaded?: GameState) => {
     setBox(`<h2>Ваша кімната</h2><div class="code">${lobby.roomCode}</div>
       <div>Поділіться кодом з друзями.</div><ul id="pl">${list(lobby.players())}</ul>
       <button id="start">Почати</button>`);
     lobby.onChange = (ps) => { q('#pl').innerHTML = list(ps); };
-    q('#start').onclick = () => cb.onHostStart?.(lobby);
+    q('#start').onclick = () => cb.onHostStart?.(lobby, loaded);
   };
 
   menu();
