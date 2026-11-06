@@ -31,6 +31,7 @@ const check = (name, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', name
   await p.click('button[data-k=quarry]');
   await p.mouse.move(500, 500); await p.waitForTimeout(150);
   check('режим будівництва: видно прозорий «привид» будівлі', (await st()).ghost);
+  check('підпис розміру футпринту (N×M)', /^\d+×\d+$/.test((await st()).ghostLabel), (await st()).ghostLabel);
   const L = (await st()).layers;
   check('контур footprint лежить під голограмою (земля < контур < привид < рамки)', L.ground < L.base && L.base < L.ghost && L.ghost < L.hover, JSON.stringify(L));
   await p.mouse.click(300, 600, { button: 'right' });
