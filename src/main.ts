@@ -13,7 +13,7 @@ const showError = (where: string, e: unknown) => window.__showError?.(where, e);
 // 1) Лобі — першим і окремо: працює навіть якщо графіка чи карта зламані.
 try {
   const lobby = mountLobby({
-    onHostStart: (hl) => { lobby.destroy(); startHost(hl); },
+    onHostStart: (hl, loaded) => { lobby.destroy(); startHost(hl, loaded as MapState | undefined); },
     onJoined: (cl, res) => { lobby.destroy(); startClient(cl, res.snapshot as unknown as MapState, res.player); },
   });
 } catch (e) { showError('лобі', e); }
@@ -37,9 +37,9 @@ function newWorld(seed: number) {
   ]);
 }
 
-function startHost(hl: import('./net').HostLobby): void {
+function startHost(hl: import('./net').HostLobby, loaded?: MapState): void {
   const players = hl.players().map((p, i) => mkPlayer(p.id, p.nickname, i));
-  state = createInitialState(state.world.seed, DEFAULT_WORLD_RADIUS, minDist, players);
+  state = loaded ?? createInitialState(state.world.seed, DEFAULT_WORLD_RADIUS, minDist, players);
   me = hl.hostPlayer;
   netRole = 'host';
   host = new HostSession(hl, state);

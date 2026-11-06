@@ -1,6 +1,6 @@
 import {
   MAX_PLAYERS, NET_PROTOCOL_VERSION,
-  type ClientMessage, type HostMessage, type LobbyPlayer, type PlayerId, type SerializedGameState,
+  type ClientMessage, type HostMessage, type LobbyPlayer, type PlayerId, type PlayerState, type SerializedGameState,
 } from '../shared';
 import type { HostSideConn } from './types';
 
@@ -24,6 +24,13 @@ export class HostLobby {
 
   constructor(readonly roomCode: string, hostNickname: string) {
     this.slots.push({ id: 'p1', nickname: hostNickname, token: newToken(), conn: null, isHost: true });
+  }
+
+  /** «Продовжити»: слоти з гравців сейва (перший — хост); повернення — за токеном. */
+  static fromPlayers(roomCode: string, players: Pick<PlayerState, 'id' | 'nickname' | 'token'>[]): HostLobby {
+    const lobby = new HostLobby(roomCode, players[0].nickname);
+    lobby.slots = players.map((p, i) => ({ id: p.id, nickname: p.nickname, token: p.token, conn: null, isHost: i === 0 }));
+    return lobby;
   }
 
   get hostPlayer(): PlayerId { return this.slots[0].id; }
