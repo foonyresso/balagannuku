@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../shared';
-import { RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
-import { residents, buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
+import { DEFAULT_TRAIL_THRESHOLDS, RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
+import { decayTrails, stepOn, residents, buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
 import { findPath, setRoadPull } from './path';
 import { ROAD_SPEED_MULT } from '../shared';
 import { MIGRATIONS } from '../shared';
@@ -341,6 +341,41 @@ describe('економіка', () => {
     expect(f.byBuilding[lj.id].produced.wood! % 3).toBe(0); // виробництво — партіями по 3 після обтесування
     expect(f.edges[`0>${lj.id}:wood`]).toBeGreaterThanOrEqual(f.byBuilding[lj.id].produced.wood!);
     expect(f.edges[`${lj.id}>${hall(w).id}:wood`]).toBeGreaterThan(0);
+  });
+
+  it('стежки: один прохід нічого не дає, кілька поспіль — так; стадії ростуть геометрично', () => {
+    const w = setup();
+    const rt = getSectorRt(w, 0);
+    const tile = 5 * SECTOR_SIZE + 5;
+    stepOn(w, rt, tile);
+    expect(rt.stage[tile]).toBe(TrailStage.None); // один NPC один раз — не стежка
+    for (let k = 0; k < 7; k++) stepOn(w, rt, tile);
+    expect(rt.stage[tile]).toBe(TrailStage.Trampled); // 8 проходів
+    const t = DEFAULT_TRAIL_THRESHOLDS;
+    expect(t.road / t.trampled).toBeGreaterThanOrEqual(5);
+    expect(t.paved / t.road).toBeGreaterThanOrEqual(5); // кожна наступна стадія набагато важча
+    for (let k = 0; k < t.road; k++) stepOn(w, rt, tile);
+    expect(rt.stage[tile]).toBe(TrailStage.Road);
+  });
+
+  it('згасання: готова дорога живе на порядок довше за слабкий слід, але зрештою зникає', () => {
+    const w = setup();
+    const rt = getSectorRt(w, 0);
+    const weak = 5 * SECTOR_SIZE + 5, paved = 5 * SECTOR_SIZE + 9;
+    for (let k = 0; k < 10; k++) stepOn(w, rt, weak);
+    for (let k = 0; k < 600; k++) stepOn(w, rt, paved);
+    expect(rt.stage[paved]).toBe(TrailStage.Paved);
+    let weakDied = 0, pavedDied = 0;
+    for (let call = 1; call <= 6000 && !(weakDied && pavedDied); call++) {
+      w.state.tick = call;
+      decayTrails(w, 50); // 50 інтервалів за виклик
+      if (!weakDied && rt.trails.traffic[weak] === 0) weakDied = call * 50;
+      if (!pavedDied && rt.trails.traffic[paved] === 0) pavedDied = call * 50;
+    }
+    expect(weakDied).toBeGreaterThan(0); // слабкий слід зникає
+    expect(pavedDied).toBeGreaterThan(0); // і дорога зрештою заростає, якщо ніхто не ходить
+    expect(pavedDied).toBeGreaterThanOrEqual(weakDied * 10); // але на порядок довше
+    expect(weakDied).toBeGreaterThan(500); // і слабкий слід живе довго (сотні інтервалів = години гри), а не одразу
   });
 
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {

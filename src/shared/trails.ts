@@ -23,8 +23,11 @@ export interface TrailThresholds {
   paved: number;
 }
 
-/** Пороги на ТАЙЛ (трафік розсіяний по тайлах, тож нижчі, ніж для крупної клітинки). */
-export const DEFAULT_TRAIL_THRESHOLDS: TrailThresholds = { trampled: 8, road: 60, paved: 300 };
+/**
+ * Пороги на ТАЙЛ: геометрична прогресія ×8 — кожна наступна стадія набирається набагато важче.
+ * Один прохід (+1) нічого не дає: потрібно ≥ trampled проходів, поки слід не встиг згаснути.
+ */
+export const DEFAULT_TRAIL_THRESHOLDS: TrailThresholds = { trampled: 8, road: 64, paved: 512 };
 /** Ширина «пензля» стежки в тайлах за стадією (для рендера й прикріплення). */
 export const TRAIL_BRUSH_TILES = [0, 1, 3, 5] as const;
 export const TRAIL_HYSTERESIS = 0.8;
