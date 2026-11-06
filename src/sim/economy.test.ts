@@ -492,7 +492,7 @@ describe('склади і ручне керування працівниками
   });
 
   it('підсклад: лісоруб несе до ближчого складу, а носій переносить у ратушу', () => {
-    const w = setup(3);
+    const w = setup(5);
     const lj = place(w, 'lumberjack', 36, 30);
     const hx = hall(w).entrance.x, hy = hall(w).entrance.y;
     let at = { x: 0, y: 0 }, bd = Infinity; // тайл біля лісоруба, найближчий до нього й ближчий за ратушу

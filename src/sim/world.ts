@@ -4,7 +4,7 @@ import type {
 } from '../shared';
 import { NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, stageFromTraffic } from '../shared';
 import { hash2 } from './rng';
-import { genNode } from './nodegen';
+import { genNode, mixNodeSeed } from './nodegen';
 import { NPC_CAPACITY, STONE_AMOUNT, TREE_AMOUNT } from './balance';
 import { createInitialState } from './worldgen';
 import { pack, unpack } from './pack';
@@ -104,7 +104,7 @@ export function nodeTile(seed: number, sectorId: number, cx: number, cy: number)
 
 /** Вид і початковий залишок вузла (клітинка навігації) ресурсу в клітинці — чиста функція від seed. */
 export function nodeAt(seed: number, sec: SectorState, x: number, y: number): [number, number] {
-  const k = genNode(seed, sec.id, sec.richness.wood ?? 0.3, sec.richness.stone ?? 0.3, x, y, CENTER_CELL);
+  const k = genNode(mixNodeSeed(seed, sec.id), sec.richness.wood ?? 0.3, sec.richness.stone ?? 0.3, x, y, CENTER_CELL);
   return k === NODE_TREE ? [NODE_TREE, TREE_AMOUNT] : k === NODE_STONE ? [NODE_STONE, STONE_AMOUNT] : [NODE_NONE, 0];
 }
 

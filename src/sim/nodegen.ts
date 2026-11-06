@@ -51,12 +51,16 @@ export const COMPACT_NODEGEN: Partial<NodegenConfig> = {
 
 export type NodeKindId = 0 | 1 | 2; // 0 нічого, 1 дерево, 2 камінь
 
+/** Змішує seed світу з id сектора: різні сектори — різні карти, всередині сектора шум суцільний. */
+export const mixNodeSeed = (seed: number, sectorId: number): number => (seed ^ Math.imul(sectorId + 1, 7919)) | 0;
+
 /**
- * Вид вузла в клітинці (x, y) сектора. Чиста функція від seed і сектора.
- * center — клітинка ратуші. Біля неї — чистий майданчик, далі дерева й камінь лише групами (гаї, скелі).
+ * Вид вузла у СВІТОВИХ координатах клітинки (x, y). Чиста функція від (seed, x, y): не залежить від меж секторів,
+ * тож кластери лісу й каміння безшовно продовжуються через будь-яку лінію (x, y можуть виходити за [0, SECTOR_CELLS)).
+ * center — світова клітинка ратуші. Біля неї — чистий майданчик, далі дерева й камінь лише групами (гаї, скелі).
  */
 export function genNode(
-  seed: number, sectorId: number, wood: number, stone: number, x: number, y: number, center: number,
+  seed: number, wood: number, stone: number, x: number, y: number, center: number,
 ): NodeKindId {
   const c = NODEGEN;
   const d = Math.hypot(x - center, y - center);
@@ -65,8 +69,8 @@ export function genNode(
   const edge = Math.min(1, (d - c.clearRadius) / c.fadeWidth);
   const far = d <= c.richRadius ? 1 : 1 - (1 - c.farFactor) * Math.min(1, (d - c.richRadius) / (c.farRadius - c.richRadius));
   const fade = edge * far;
-  const ox = sectorId * 13.7, oy = seed % 97;
-  const h = hash2(x, y, seed ^ (sectorId * 7919));
+  const ox = (Math.abs(seed) % 1009) * 13.7, oy = Math.abs(seed >> 8) % 997;
+  const h = hash2(x, y, seed);
   // поляни: за межею «багатої» зони великі ділянки без жодних вузлів
   if (d > c.richRadius && fbm(x * c.meadowScale + ox, y * c.meadowScale + oy, 303) < c.meadowCut) return 0;
   if (fbm(x * c.treeScale + ox, y * c.treeScale + oy, 101) > c.treeThreshold - c.treeRichGain * wood && h < c.treeDensity * fade) return 1;

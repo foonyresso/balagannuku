@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateSectors } from './worldgen';
 import { C, CENTER_CELL, nodeAt, NODE_NONE } from './world';
-import { NODEGEN } from './nodegen';
+import { NODEGEN, genNode, mixNodeSeed } from './nodegen';
 
 /** Частка вільних клітинок у колі радіуса r навколо ратуші, усереднено по секторах і сідах. */
 function freeShare(r: number, seeds: number[]): number {
@@ -45,6 +45,34 @@ describe('генерація вузлів: вільний майданчик', (
       }
       expect(trees).toBeGreaterThan(50);
       expect(stones).toBeGreaterThan(20);
+    }
+  });
+});
+
+describe('безшовність: genNode залежить лише від світових координат', () => {
+  /** Частка пар сусідніх клітинок по x з однаковим видом вузла (кластери → висока, шов → різкий провал). */
+  const agree = (seed: number, x: number, ys: number[]) => {
+    let same = 0;
+    for (const y of ys) if (genNode(seed, 0.5, 0.5, x, y, 256) === genNode(seed, 0.5, 0.5, x + 1, y, 256)) same++;
+    return same / ys.length;
+  };
+  const ys = Array.from({ length: 400 }, (_, i) => 40 + i); // далекий ліс, де вузли є
+  it('на межах секторів (x = 255|256 і 511|512) немає провалу узгодженості', () => {
+    for (const seed of [3, 11, 77]) {
+      const s = mixNodeSeed(seed, 0);
+      for (const edge of [255, 511, 767]) {
+        const around = [edge - 6, edge - 4, edge - 2, edge + 2, edge + 4, edge + 6].map((x) => agree(s, x, ys));
+        const mean = around.reduce((a, b) => a + b, 0) / around.length;
+        expect(Math.abs(agree(s, edge, ys) - mean)).toBeLessThan(0.05);
+      }
+    }
+  });
+  it('той самий світ незалежно від того, з якого «сектора» його читають', () => {
+    const s = mixNodeSeed(5, 2);
+    for (let x = 500; x < 530; x++) {
+      const a = genNode(s, 0.4, 0.4, x, 300, 256);
+      const viaOffset = genNode(s, 0.4, 0.4, (x - 512) + 512, 300, 256); // читання через зсув сектора на цілу ширину
+      expect(a).toBe(viaOffset);
     }
   });
 });
