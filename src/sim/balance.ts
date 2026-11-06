@@ -7,7 +7,8 @@ export const CARRY_CAP = 3;
 export const WORK_TICKS = 15; // добування одиниці
 export const MILL_TICKS = 20; // 2 дерева -> 1 дошка
 export const WAIT_TICKS = 15; // очікування при нестачі
-export const WORK_RADIUS = 24;
+/** Радіус пошуку вузла від будівлі (клітинок). За замовчуванням — увесь сектор: відстань не заважає роботі. */
+export const WORK_RADIUS = 64;
 export const ATTACHED_WORK_MULT = 0.8; // будівля на дорозі працює швидше
 export const TREE_AMOUNT = 3;
 export const STONE_AMOUNT = 8;

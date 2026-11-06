@@ -23,6 +23,10 @@ const lighten = (c: number): number => {
   const f = (v: number) => Math.min(255, Math.round(v + (255 - v) * 0.25));
   return (f((c >> 16) & 255) << 16) | (f((c >> 8) & 255) << 8) | f(c & 255);
 };
+const WHY: Record<string, string> = {
+  no_node: 'немає дерев/каменю в секторі', no_storage: 'немає куди віднести (склад?)', storage_full: 'склад повний',
+  no_wood: 'немає вільного дерева (резерв під будівництво)', no_path: 'немає шляху', paused: 'на паузі',
+};
 const PROF_COLORS = [0xeeeeee, 0x66bb6a, 0xbdbdbd, 0x90caf9, 0xff8a65, 0xba68c8, 0xffcc80];
 
 interface Obj { x: number; y: number; draw: (g: Graphics) => void; pick: number[] | null; cell: { x: number; y: number } | null }
@@ -238,7 +242,7 @@ export class CityView {
       const rate = ratePerSec(this.w, b.id, 'produced', out);
       const starved = this.w.state.flows.last.byBuilding[b.id]?.starved ?? 0;
       return `<div>${BUILD_NAMES[b.kind]} #${b.id} (${b.workers.length}/${MAX_WORKERS[b.kind]}): ${RES_NAMES[out]} ${rate.toFixed(2)}/с` +
-        `${starved > 20 ? ' <span class="bad">простій</span>' : ''}${b.roadAttached ? ' 🛣' : ''}${b.kind === 'sawmill' ? ` <button data-pause="${b.id}">${b.paused ? '▶ Пуск' : '⏸ Пауза'}</button>` : ''}</div>`;
+        `${starved > 20 ? ` <span class="bad">простій: ${WHY[this.w.why.get(b.id) ?? ''] ?? '?'}</span>` : ''}${b.roadAttached ? ' 🛣' : ''}${b.kind === 'sawmill' ? ` <button data-pause="${b.id}">${b.paused ? '▶ Пуск' : '⏸ Пауза'}</button>` : ''}</div>`;
     }).join('');
     this.panel.querySelector('#cityFlow')!.innerHTML = rows ? `<h3>Виробництво</h3>${rows}` : '';
   }

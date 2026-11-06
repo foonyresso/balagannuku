@@ -150,6 +150,28 @@ describe('економіка', () => {
     expect(w.state.flows.total.byBuilding[sm.id].produced.planks).toBeGreaterThan(0);
   });
 
+  it('відстань не заважає: лісоруб працює з деревом за 40+ клітинок', () => {
+    const w = setup();
+    const rt = getSectorRt(w, 0);
+    rt.kind.fill(0); rt.amount.fill(0); rt.forest.fill(0);
+    const tree = 5 * SECTOR_SIZE + 60; // далеко від центру (≈ 40 клітинок від лісоруба)
+    rt.kind[tree] = 1; rt.amount[tree] = 3; rt.forest[tree] = 1;
+    const lj = place(w, 'lumberjack', 20, 36);
+    expect(staffBuilding(w, 'p', lj.id)).toBeGreaterThan(0);
+    run(w, 1500);
+    expect(w.state.flows.total.byBuilding[lj.id]?.produced.wood ?? 0).toBeGreaterThan(0);
+  });
+
+  it('причина простою: немає вузлів -> no_node', () => {
+    const w = setup();
+    const rt = getSectorRt(w, 0);
+    rt.kind.fill(0);
+    const lj = place(w, 'lumberjack', 20, 36);
+    staffBuilding(w, 'p', lj.id);
+    run(w, 100);
+    expect(w.why.get(lj.id)).toBe('no_node');
+  });
+
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {
     const w = setup();
     place(w, 'warehouse', 20, 20);
