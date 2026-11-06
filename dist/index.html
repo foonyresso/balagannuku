@@ -23,11 +23,19 @@
       #tip .row span { flex: 1; }
       #tip em { display: block; margin-top: 0.4em; color: #9ad; font-style: normal; }
       #tip em.bad { color: #f77; }
-          #err { position: fixed; left: 0; right: 0; bottom: 0; z-index: 100; max-height: 40%; overflow: auto; margin: 0;
+          #cityPanel { position: absolute; top: 0; right: 0; width: 22em; font-size: calc(13px * var(--ui)); padding: 0.7em 1em;
+        background: rgba(20, 14, 28, 0.9); border-bottom-left-radius: 0.6em; line-height: 1.5; }
+      #cityPanel h2, #cityPanel h3 { margin: 0.2em 0; }
+      #cityPanel .btns { display: flex; flex-wrap: wrap; gap: 0.3em; margin: 0.5em 0; }
+      #cityPanel button { font-size: 1em; padding: 0.3em 0.6em; cursor: pointer; }
+      #cityPanel button.sel { outline: 2px solid #ffd54f; }
+      #cityPanel .bad { color: #f77; }
+      #cityMsg { color: #ffd54f; min-height: 1.5em; }
+      #err { position: fixed; left: 0; right: 0; bottom: 0; z-index: 100; max-height: 40%; overflow: auto; margin: 0;
         padding: 0.5em 1em; background: rgba(60, 0, 0, 0.92); color: #ff8a8a; font: 13px/1.4 monospace; white-space: pre-wrap; display: none; }
       #build { position: fixed; right: 8px; top: 6px; z-index: 100; font: 11px monospace; color: #8a7f99; pointer-events: none; }
     </style>
-    <script type="module" crossorigin src="/assets/index-Beiz3Rvj.js"></script>
+    <script type="module" crossorigin src="/assets/index-6n8Ggiw0.js"></script>
   </head>
   <body>
     <div id="app"></div>
@@ -42,7 +50,7 @@
     <pre id="err"></pre>
     <div id="build"></div>
     <script>
-      document.getElementById('build').textContent = 'збірка ' + '888b3a5 2026-11-06 12:35Z';
+      document.getElementById('build').textContent = 'збірка ' + '9af1732 2026-11-06 12:42Z';
       window.__showError = function (where, e) {
         var box = document.getElementById('err');
         var msg = e && e.stack ? e.stack : String(e && e.message ? e.message : e);

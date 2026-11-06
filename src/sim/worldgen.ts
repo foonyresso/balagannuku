@@ -1,5 +1,5 @@
 import type { GameState, PlayerState, ResourceKind, SectorState } from '../shared';
-import { MIN_START_DISTANCE } from '../shared';
+import { MIN_START_DISTANCE, createFlowLedger } from '../shared';
 import { fbm } from './noise';
 import { hexDisc, hexDistance } from './hex';
 
@@ -24,7 +24,7 @@ export function generateSectors(seed: number, radius: number): SectorState[] {
       if (kind === 'gold' || kind === 'ore') v = Math.pow(v, 2.2) * 1.6;
       richness[kind] = Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
     }
-    return { id, hex, owner: null, richness, trails: null };
+    return { id, hex, owner: null, richness, trails: null, nodes: null };
   });
 }
 
@@ -42,6 +42,7 @@ export function createInitialState(
     sectors: generateSectors(seed, radius),
     buildings: [],
     nextBuildingId: 1,
+    flows: createFlowLedger(),
   };
 }
 

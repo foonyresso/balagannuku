@@ -5,6 +5,8 @@ import { MapView, RESOURCE_COLORS, RESOURCE_NAMES } from './render/mapView';
 import { canClaimStart, claimStart, createInitialState, DEFAULT_WORLD_RADIUS, SECTOR_RESOURCES } from './sim/worldgen';
 import { mulberry32 } from './sim/rng';
 import { mountLobby } from './ui';
+import { CityView } from './render/cityView';
+import { startCity, wrapState, type SimWorld } from './sim';
 
 declare global { interface Window { __appStarted?: boolean; __showError?: (where: string, e: unknown) => void } }
 window.__appStarted = true;
@@ -55,6 +57,7 @@ const tip = $('tip'), status = $('status');
 view.blocked = (id) => !canClaimStart(state, ME, id).ok;
 
 view.onHover = (id, x, y) => {
+  if (city) return;
   if (id === null) { tip.style.display = 'none'; return; }
   const s = state.sectors[id];
   const rows = SECTOR_RESOURCES.map(({ kind }) => {
@@ -72,10 +75,25 @@ view.onHover = (id, x, y) => {
   tip.style.top = `${Math.min(y + 16, window.innerHeight - tip.offsetHeight - 8)}px`;
 };
 
+let city: CityView | null = null;
+let sim: SimWorld | null = null;
+const exitCity = () => { city?.destroy(); city = null; view.world.visible = true; $('hud').style.display = ''; };
+const enterCity = (sector: number) => {
+  view.world.visible = false; tip.style.display = 'none'; $('hud').style.display = 'none';
+  city = new CityView(app, sim!, ME, sector, exitCity);
+};
 view.onClick = (id) => {
-  const r = claimStart(state, ME, id);
-  status.textContent = r.ok ? 'Стартовий сектор обрано!' : REASONS[r.reason];
-  view.redraw();
+  if (city) return;
+  const home = state.players[0].homeSector;
+  if (home === null) {
+    const r = claimStart(state, ME, id);
+    status.textContent = r.ok ? 'Стартовий сектор обрано! Клік по ньому — увійти в місто' : REASONS[r.reason];
+    view.redraw();
+    if (!r.ok) return;
+    sim = wrapState(state); // етап економіки: симуляція міста домашнього сектора
+    startCity(sim, ME);
+    enterCity(id);
+  } else if (id === home && sim) enterCity(id);
 };
 
 function placeBot(): void {
@@ -86,6 +104,8 @@ function placeBot(): void {
 }
 
 function reset(): void {
+  exitCity();
+  sim = null;
   state = newWorld(Math.floor(Math.random() * 1e9));
   status.textContent = 'Обери стартовий сектор';
   placeBot();

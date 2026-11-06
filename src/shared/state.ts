@@ -3,6 +3,7 @@ import type {
   Profession, ResourceKind, SectorId, Tick,
 } from './ids';
 import type { PackedTrailLayer } from './trails';
+import type { FlowLedger } from './flows';
 
 /**
  * Увесь стан гри — ОДНЕ дерево GameState. Нічого не живе поза ним.
@@ -18,6 +19,8 @@ export interface GameState {
   buildings: BuildingState[]; // розріджений список; id унікальні
   nextBuildingId: BuildingId;
   npcs: NpcStore;
+  /** Облік потоків ресурсів (виробництво/споживання/ребра) для візуалізатора ланцюжків. */
+  flows: FlowLedger;
 }
 
 export interface WorldState {
@@ -45,6 +48,8 @@ export interface SectorState {
   richness: Partial<Record<ResourceKind, number>>;
   /** Трафік стежок на клітинку (SECTOR_SIZE²). Стадія — похідна. */
   trails: PackedTrailLayer | null;
+  /** Залишок у вузлах ресурсів (дерево/камінь) на клітинку; null = початковий. Вид вузла похідний від seed. */
+  nodes: PackedArray | null;
 }
 
 export interface BuildingState {
@@ -86,7 +91,7 @@ export interface NpcStore {
 
 export const INVENTORY_SLOTS = 8;
 export const EQUIPMENT_SLOTS = 4; // голова, тіло, зброя, щит
-export const PROFESSIONS: readonly Profession[] = ['idle', 'lumberjack', 'miner', 'carrier', 'smith', 'hero'];
+export const PROFESSIONS: readonly Profession[] = ['idle', 'lumberjack', 'miner', 'carrier', 'smith', 'hero', 'sawyer'];
 export const TASKS = ['idle', 'walk', 'work', 'carry', 'rest', 'dungeon'] as const;
 
 /** Серіалізований NpcStore: кожен typed array -> PackedArray. */

@@ -23,8 +23,8 @@ export const RESOURCE_KINDS: readonly ResourceKind[] = [
   'wood', 'stone', 'ore', 'water', 'food', 'planks', 'gold',
 ];
 
-export type BuildingKind = 'townhall' | 'lumberjack' | 'warehouse' | 'house' | 'forge' | 'dungeon_gate';
-export type Profession = 'idle' | 'lumberjack' | 'miner' | 'carrier' | 'smith' | 'hero';
+export type BuildingKind = 'townhall' | 'lumberjack' | 'warehouse' | 'house' | 'forge' | 'dungeon_gate' | 'quarry' | 'sawmill';
+export type Profession = 'idle' | 'lumberjack' | 'miner' | 'carrier' | 'smith' | 'hero' | 'sawyer';
 
 /** Масив фіксованого типу у серіалізованому вигляді (base64 сирих байтів, little-endian). */
 export interface PackedArray {
