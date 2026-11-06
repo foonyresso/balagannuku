@@ -9,7 +9,10 @@ import {
 } from './balance';
 import { flowConsume, flowEdge, flowProduce, flowStarve, rollFlowWindow } from './flow';
 import { findPath } from './path';
-import { NODE_STONE, NODE_TREE, S, getSectorRt, type SectorRt, type SimWorld } from './world';
+import {
+  C as CELLS, NODE_STONE, NODE_TREE, T as TILES, TPC, cellOfTile, getSectorRt, nodeTile, refreshCellStage,
+  type SectorRt, type SimWorld,
+} from './world';
 import { spawnNpc } from './npcs';
 
 // Фази NPC
@@ -60,55 +63,95 @@ function nearestAcceptor(rt: SectorRt, owner: string, x: number, y: number, kind
   return best;
 }
 
-function setPath(w: SimWorld, i: number, rt: SectorRt, gx: number, gy: number): boolean {
-  const n = w.state.npcs;
-  const p = findPath(rt, Math.floor(n.x[i]), Math.floor(n.y[i]), gx, gy);
-  w.npc.path[i] = p;
-  w.npc.pathPos[i] = 0;
-  return p !== null;
+/** Видимість між двома точками (у тайлах) за footprint будівель, із запасом ±1 тайл; кінці (3 тайли) не перевіряються. */
+function visible(rt: SectorRt, x0: number, y0: number, x1: number, y1: number): boolean {
+  const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
+  const steps = Math.ceil(len / 2);
+  const occ = rt.occ;
+  for (let k = 1; k < steps; k++) {
+    const f = k / steps;
+    if (len * f < 3 || len * (1 - f) < 3) continue;
+    const tx = Math.floor(x0 + dx * f), ty = Math.floor(y0 + dy * f);
+    const i = ty * TILES + tx;
+    if (occ[i] || occ[i - 1] || occ[i + 1] || occ[i - TILES] || occ[i + TILES]) return false;
+  }
+  return true;
 }
 
-/** Крок уздовж шляху; true — дійшов. Додає трафік стежки при вході в нову клітинку. */
+const LOOKAHEAD = 8;
+/**
+ * Шлях до тайла (gx,gy): A* по грубих клітинках навігації, далі спрощення за видимістю
+ * (прямі відрізки в тайлах). Один раз на подорож. Шлях зберігається як пари (x,y) у тайлах.
+ */
+function setPath(w: SimWorld, i: number, rt: SectorRt, gx: number, gy: number): boolean {
+  const n = w.state.npcs;
+  const sx = n.x[i], sy = n.y[i];
+  const sc = cellOfTile(Math.floor(sx), Math.floor(sy)), gc = cellOfTile(gx, gy);
+  const cells = findPath(rt, sc % CELLS, (sc / CELLS) | 0, gc % CELLS, (gc / CELLS) | 0);
+  w.npc.pathPos[i] = 0;
+  if (!cells) { w.npc.path[i] = null; return false; }
+  const m = cells.length;
+  const px: number[] = [sx], py: number[] = [sy];
+  for (let k = 0; k < m - 1; k++) { px.push((cells[k] % CELLS) * TPC + TPC / 2); py.push(Math.floor(cells[k] / CELLS) * TPC + TPC / 2); }
+  px.push(gx + 0.5); py.push(gy + 0.5);
+  const out: number[] = [];
+  const last = px.length - 1;
+  let a = 0;
+  while (a < last) {
+    let b = Math.min(last, a + LOOKAHEAD);
+    while (b > a + 1 && !visible(rt, px[a], py[a], px[b], py[b])) b--;
+    out.push(px[b], py[b]);
+    a = b;
+  }
+  w.npc.path[i] = Float32Array.from(out);
+  w.npc.tile[i] = Math.floor(sy) * TILES + Math.floor(sx);
+  return true;
+}
+
+/** Крок уздовж шляху; true — дійшов. Трафік стежки додається при вході в новий ТАЙЛ. */
 function advance(w: SimWorld, i: number, rt: SectorRt): boolean {
   const n = w.state.npcs, path = w.npc.path[i];
   if (!path) return true;
   let pos = w.npc.pathPos[i];
   let x = n.x[i], y = n.y[i];
-  const cell = Math.floor(y) * S + Math.floor(x);
-  let budget = NPC_SPEED * ROAD_SPEED_MULT[rt.stage[cell] as TrailStage];
+  let budget = NPC_SPEED * ROAD_SPEED_MULT[rt.stage[Math.floor(y) * TILES + Math.floor(x)] as TrailStage];
   while (pos < path.length && budget > 0) {
-    const c = path[pos];
-    const tx = (c % S) + 0.5, ty = ((c / S) | 0) + 0.5;
+    const tx = path[pos], ty = path[pos + 1];
     const dx = tx - x, dy = ty - y, d = Math.hypot(dx, dy);
-    if (d <= budget) {
-      x = tx; y = ty; budget -= d; pos++;
-      stepOn(w, rt, c);
-    } else { x += (dx / d) * budget; y += (dy / d) * budget; budget = 0; }
+    const step = Math.min(budget, 0.5); // півтайла: не пропускаємо тайли на діагоналях
+    if (d <= step) { x = tx; y = ty; budget -= d; pos += 2; } else { x += (dx / d) * step; y += (dy / d) * step; budget -= step; }
+    const t = Math.floor(y) * TILES + Math.floor(x);
+    if (t !== w.npc.tile[i]) { w.npc.tile[i] = t; stepOn(w, rt, t); }
   }
   n.x[i] = x; n.y[i] = y; w.npc.pathPos[i] = pos;
   if (pos >= path.length) { w.npc.path[i] = null; return true; }
   return false;
 }
 
-function stepOn(w: SimWorld, rt: SectorRt, c: number): void {
-  const t = rt.trails.traffic;
-  t[c] = Math.min(TRAIL_MAX, t[c] + TRAIL_STEP_ADD);
-  const ns = stageFromTraffic(t[c], rt.stage[c]);
-  if (ns !== rt.stage[c]) { rt.stage[c] = ns; w.stageChanges.push({ sector: rt.id, cell: c, stage: ns }); }
+function stepOn(w: SimWorld, rt: SectorRt, t: number): void {
+  const tr = rt.trails.traffic;
+  tr[t] = Math.min(TRAIL_MAX, tr[t] + TRAIL_STEP_ADD);
+  const ns = stageFromTraffic(tr[t], rt.stage[t]);
+  if (ns !== rt.stage[t]) {
+    rt.stage[t] = ns;
+    refreshCellStage(rt, cellOfTile(t % TILES, (t / TILES) | 0));
+    w.stageChanges.push({ sector: rt.id, cell: t, stage: ns });
+  }
 }
 
+/** Найближча клітинка з вузлом даного виду (пошук кільцями навколо входу, радіус у клітинках). */
 function findNode(rt: SectorRt, b: BuildingState, kind: number): number {
-  const ex = b.entrance.x, ey = b.entrance.y;
+  const ex = Math.floor(b.entrance.x / TPC), ey = Math.floor(b.entrance.y / TPC);
   for (let r = 1; r <= WORK_RADIUS; r++) {
     let best = -1, bd = Infinity;
     for (let dy = -r; dy <= r; dy++) {
       const y = ey + dy;
-      if (y < 0 || y >= S) continue;
+      if (y < 0 || y >= CELLS) continue;
       const step = Math.abs(dy) === r ? 1 : 2 * r;
       for (let dx = -r; dx <= r; dx += step) {
         const x = ex + dx;
-        if (x < 0 || x >= S) continue;
-        const i = y * S + x;
+        if (x < 0 || x >= CELLS) continue;
+        const i = y * CELLS + x;
         if (rt.kind[i] === kind) {
           const d = dx * dx + dy * dy;
           if (d < bd) { bd = d; best = i; }
@@ -150,7 +193,8 @@ function plan(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   const nodeKind = n.profession[i] === MINER ? NODE_STONE : NODE_TREE;
   const cell = findNode(rt, b, nodeKind);
   if (cell < 0) return wait(w, i, b, 'no_node');
-  if (!setPath(w, i, rt, cell % S, (cell / S) | 0)) return wait(w, i, b, 'no_path');
+  const nt = nodeTile(w.state.world.seed, rt.id, cell % CELLS, (cell / CELLS) | 0);
+  if (!setPath(w, i, rt, nt.x, nt.y)) return wait(w, i, b, 'no_path');
   npc.aux[i] = cell; npc.phase[i] = WALK_NODE; n.task[i] = T('walk');
 }
 
@@ -268,15 +312,16 @@ function startMill(w: SimWorld, i: number, mill: BuildingState): void {
   npc.phase[i] = PLAN;
 }
 
+/** Будівля прикріплена до дороги, якщо в межах 2 тайлів від входу є тайл стадії ≥ Road. */
 function updateRoadAttached(w: SimWorld): void {
   for (const b of w.state.buildings) {
     const rt = w.sectors.get(b.sector);
     if (!rt) continue;
     let ok = false;
-    for (let dy = -1; dy <= 1 && !ok; dy++) {
-      for (let dx = -1; dx <= 1 && !ok; dx++) {
+    for (let dy = -2; dy <= 2 && !ok; dy++) {
+      for (let dx = -2; dx <= 2 && !ok; dx++) {
         const x = b.entrance.x + dx, y = b.entrance.y + dy;
-        if (x >= 0 && y >= 0 && x < S && y < S && rt.stage[y * S + x] >= ROAD_ATTACH_MIN_STAGE) ok = true;
+        if (x >= 0 && y >= 0 && x < TILES && y < TILES && rt.stage[y * TILES + x] >= ROAD_ATTACH_MIN_STAGE) ok = true;
       }
     }
     b.roadAttached = ok;
@@ -290,7 +335,11 @@ function decayTrails(w: SimWorld): void {
       if (!t[c]) continue;
       t[c] = Math.floor(t[c] * TRAIL_DECAY_FACTOR);
       const ns = stageFromTraffic(t[c], rt.stage[c]);
-      if (ns !== rt.stage[c]) { rt.stage[c] = ns; w.stageChanges.push({ sector: rt.id, cell: c, stage: ns }); }
+      if (ns !== rt.stage[c]) {
+        rt.stage[c] = ns;
+        refreshCellStage(rt, cellOfTile(c % TILES, (c / TILES) | 0));
+        w.stageChanges.push({ sector: rt.id, cell: c, stage: ns });
+      }
     }
   }
 }

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../shared';
-import { RESOURCE_KINDS, SECTOR_SIZE, TrailStage } from '../shared';
-import { buildCheck, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
+import { RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
+import { buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
 import { findPath, setRoadPull } from './path';
 import { ROAD_SPEED_MULT } from '../shared';
+import { MIGRATIONS } from '../shared';
+import { FOOTPRINT } from './balance';
 import { claimStart } from './worldgen';
 
 const mk = (id: string): PlayerState => ({
@@ -17,19 +19,19 @@ export function setup(seed = 7): SimWorld {
   startCity(w, 'p');
   return w;
 }
-const free = (w: SimWorld, x0: number, y0: number) => {
-  const rt = getSectorRt(w, 0);
-  let x = x0, y = y0, bd = Infinity;
-  for (let yy = 1; yy < SECTOR_SIZE - 2; yy++) for (let xx = 1; xx < SECTOR_SIZE - 1; xx++) {
-    const i = yy * SECTOR_SIZE + xx, j = i + SECTOR_SIZE;
-    if (rt.blocked[i] || rt.blocked[j] || rt.kind[i] || rt.kind[j]) continue;
-    const d = Math.abs(xx - x0) + Math.abs(yy - y0);
-    if (d < bd) { bd = d; x = xx; y = yy; }
+type Kind = 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'house';
+/** Найближчий до (x0,y0) тайл, де кind можна поставити (за checkPlace). */
+const free = (w: SimWorld, kind: Kind, x0: number, y0: number) => {
+  let best = { x: x0, y: y0 }, bd = Infinity;
+  for (let y = 0; y < SECTOR_SIZE; y += 2) for (let x = 0; x < SECTOR_SIZE; x += 2) {
+    const d = Math.abs(x - x0) + Math.abs(y - y0);
+    if (d < bd && checkPlace(w, 0, kind, x, y) === null) { bd = d; best = { x, y }; }
   }
-  return { x, y };
+  return best;
 };
-const place = (w: SimWorld, kind: 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'house', x0: number, y0: number) => {
-  const { x, y } = free(w, x0, y0);
+/** Координати (cx,cy) — у клітинках навігації; будівля ставиться в найближче вільне місце. */
+const place = (w: SimWorld, kind: Kind, cx: number, cy: number) => {
+  const { x, y } = free(w, kind, cx * 4, cy * 4);
   const r = applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'place_building', kind, sector: 0, cell: { x, y } } });
   expect(r.ok, String(r.reason)).toBe(true);
   return w.state.buildings[w.state.buildings.length - 1];
@@ -156,7 +158,7 @@ describe('економіка', () => {
     const w = setup();
     const rt = getSectorRt(w, 0);
     rt.kind.fill(0); rt.amount.fill(0); rt.forest.fill(0);
-    const tree = 5 * SECTOR_SIZE + 60; // далеко від центру (≈ 40 клітинок від лісоруба)
+    const tree = 5 * SECTOR_CELLS + 60; // далеко від центру (≈ 40 клітинок від лісоруба)
     rt.kind[tree] = 1; rt.amount[tree] = 3; rt.forest[tree] = 1;
     const lj = place(w, 'lumberjack', 20, 36);
     expect(staffBuilding(w, 'p', lj.id)).toBeGreaterThan(0);
@@ -175,10 +177,10 @@ describe('економіка', () => {
   });
 
   it('дороги: невеликий гак до дороги вигідний, великий — ні; швидкість +10..15%', () => {
-    const S = SECTOR_SIZE;
+    const S = SECTOR_CELLS;
     const grid = (roadRow: number) => {
-      const g = { blocked: new Uint8Array(S * S), stage: new Uint8Array(S * S), forest: new Uint8Array(S * S) };
-      for (let x = 0; x < S; x++) g.stage[roadRow * S + x] = TrailStage.Paved;
+      const g = { blocked: new Uint8Array(S * S), cellStage: new Uint8Array(S * S), forest: new Uint8Array(S * S) };
+      for (let x = 0; x < S; x++) g.cellStage[roadRow * S + x] = TrailStage.Paved;
       return g;
     };
     const rowsOf = (p: Int16Array) => new Set(Array.from(p, (c) => Math.floor(c / S)));
@@ -201,7 +203,7 @@ describe('економіка', () => {
     const rt = w.sectors.get(0)!;
     expect(Math.max(...rt.stage)).toBeLessThanOrEqual(TrailStage.Paved);
     const roadCells = rt.stage.reduce((a, s) => a + (s >= TrailStage.Road ? 1 : 0), 0);
-    expect(roadCells).toBeLessThan(SECTOR_SIZE * SECTOR_SIZE * 0.25); // не весь сектор
+    expect(roadCells).toBeLessThan(SECTOR_SIZE * SECTOR_SIZE * 0.1); // не весь сектор
   });
 
   it('пауза перемикається одразу й незалежно від працівників', () => {
@@ -215,15 +217,56 @@ describe('економіка', () => {
     }
   });
 
+  it('footprint: будівлі різного розміру в тайлах, перекриття заборонене, вхід по центру низу', () => {
+    const w = setup();
+    const t = hall(w);
+    expect(t.size).toEqual(FOOTPRINT.townhall);
+    expect(t.entrance).toEqual({ x: t.cell.x + t.size.w / 2, y: t.cell.y + t.size.h });
+    const wh = place(w, 'warehouse', 20, 20);
+    expect(wh.size).toEqual(FOOTPRINT.warehouse);
+    // перекриття footprint (навіть на 1 тайл) — відмова; поруч упритул — можна
+    expect(checkPlace(w, 0, 'house', wh.cell.x + wh.size.w - 1, wh.cell.y)).toBe('occupied');
+    expect(checkPlace(w, 0, 'house', -1, 5)).toBe('invalid');
+    const rt = getSectorRt(w, 0);
+    expect(rt.occ.reduce((a, v) => a + v, 0)).toBe(t.size.w * t.size.h + wh.size.w * wh.size.h);
+    applyCommand(w, { player: 'p', seq: 3, cmd: { type: 'demolish_building', building: wh.id } });
+    expect(rt.occ.reduce((a, v) => a + v, 0)).toBe(t.size.w * t.size.h);
+  });
+
+  it('стежки по тайлах: ходіння лишає вузький слід, стадії — по тайлах', () => {
+    const w = setup();
+    staffBuilding(w, 'p', place(w, 'lumberjack', 40, 30).id);
+    run(w, 1200);
+    const rt = w.sectors.get(0)!;
+    const trodden = rt.trails.traffic.reduce((a, v) => a + (v > 0 ? 1 : 0), 0);
+    expect(trodden).toBeGreaterThan(50);
+    expect(rt.trails.traffic.length).toBe(SECTOR_SIZE * SECTOR_SIZE);
+    // cellStage узгоджений зі стадіями тайлів
+    for (let c = 0; c < SECTOR_CELLS * SECTOR_CELLS; c += 97) {
+      const cx = c % SECTOR_CELLS, cy = Math.floor(c / SECTOR_CELLS);
+      let m = 0;
+      for (let y = cy * 4; y < cy * 4 + 4; y++) for (let x = cx * 4; x < cx * 4 + 4; x++) m = Math.max(m, rt.stage[y * SECTOR_SIZE + x]);
+      expect(rt.cellStage[c]).toBe(m);
+    }
+  });
+
+  it('міграція v2 -> v3: порожній світ переноситься, місто відхиляється з повідомленням', () => {
+    const base = { version: 2, state: { buildings: [], npcs: { count: 0 }, sectors: [{ id: 0, trails: { type: 'u16', length: 4096, base64: '' } }] } };
+    const ok = MIGRATIONS[2](base) as { version: number; state: { sectors: { trails: unknown }[] } };
+    expect(ok.version).toBe(3);
+    expect(ok.state.sectors[0].trails).toBeNull();
+    expect(() => MIGRATIONS[2]({ ...base, state: { ...base.state, buildings: [{}] } })).toThrow(/нову гру/);
+  });
+
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {
     const w = setup();
     place(w, 'warehouse', 20, 20);
     const occ = applyCommand(w, { player: 'p', seq: 2, cmd: { type: 'place_building', kind: 'warehouse', sector: 0, cell: { x: w.state.buildings[1].cell.x, y: w.state.buildings[1].cell.y } } });
     expect(occ.reason).toBe('occupied');
     w.state.buildings.forEach((b) => (b.stock = {}));
-    const poor = applyCommand(w, { player: 'p', seq: 3, cmd: { type: 'place_building', kind: 'warehouse', sector: 0, cell: free(w, 10, 10) } });
+    const poor = applyCommand(w, { player: 'p', seq: 3, cmd: { type: 'place_building', kind: 'warehouse', sector: 0, cell: free(w, 'warehouse', 40, 40) } });
     expect(poor.reason).toBe('no_resources');
-    const alien = applyCommand(w, { player: 'x', seq: 4, cmd: { type: 'place_building', kind: 'warehouse', sector: 0, cell: free(w, 10, 10) } });
+    const alien = applyCommand(w, { player: 'x', seq: 4, cmd: { type: 'place_building', kind: 'warehouse', sector: 0, cell: free(w, 'warehouse', 40, 40) } });
     expect(alien.reason).toBe('not_owner');
   });
 
@@ -271,6 +314,6 @@ describe('економіка', () => {
     const before = w.state.npcs.count;
     run(w, 700);
     expect(w.state.npcs.count).toBeGreaterThan(before);
-    expect(SECTOR_SIZE).toBe(64);
+    expect(SECTOR_SIZE).toBe(256);
   });
 });

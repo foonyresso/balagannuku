@@ -2,24 +2,51 @@ import type {
   BuildingKind, BuildingState, CommandEnvelope, CommandRejectReason, CommandResult, ResourceKind,
 } from '../shared';
 import { PROFESSIONS } from '../shared';
-import { COSTS, JOB_OF, MAX_WORKERS, START_SETTLERS, START_STOCK, STORAGE_CAP } from './balance';
+import { COSTS, FOOTPRINT, JOB_OF, MAX_WORKERS, PLACE_MARGIN, START_SETTLERS, START_STOCK, STORAGE_CAP } from './balance';
 import { spawnNpc } from './npcs';
 import { syncPlayerResources } from './step';
-import { CENTER, NODE_NONE, S, getSectorRt, rebuildIndex, type SimWorld } from './world';
+import { C as CELLS, CENTER_TILE, NODE_NONE, T as TILES, TPC, getSectorRt, markFootprint, nodeTile, rebuildIndex, type SimWorld } from './world';
 
 type Res = { ok: true } | { ok: false; reason: CommandRejectReason };
 const no = (reason: CommandRejectReason): Res => ({ ok: false, reason });
 
 function addBuilding(w: SimWorld, kind: BuildingKind, owner: string, sector: number, x: number, y: number): BuildingState {
   const rt = getSectorRt(w, sector);
+  const size = { ...(FOOTPRINT[kind] ?? { w: 6, h: 6 }) };
   const b: BuildingState = {
-    id: w.state.nextBuildingId++, kind, owner, sector, cell: { x, y }, entrance: { x, y: y + 1 },
+    id: w.state.nextBuildingId++, kind, owner, sector, cell: { x, y }, size,
+    entrance: { x: x + (size.w >> 1), y: y + size.h }, // по центру нижньої межі footprint
     progress: 1, roadAttached: false, stock: {}, workers: [],
   };
   w.state.buildings.push(b);
-  rt.blocked[y * S + x] = 1;
+  markFootprint(rt, b, 1);
   rebuildIndex(w);
   return b;
+}
+
+/**
+ * Чи можна поставити будівлю з лівим верхнім тайлом (x,y): у межах сектора, footprint і вхід вільні,
+ * поруч (запас PLACE_MARGIN тайлів) немає вузлів ресурсів. Повертає причину відмови або null.
+ */
+export function checkPlace(w: SimWorld, sector: number, kind: BuildingKind, x: number, y: number): 'invalid' | 'occupied' | null {
+  const fp = FOOTPRINT[kind];
+  if (!fp || !Number.isInteger(x) || !Number.isInteger(y)) return 'invalid';
+  if (x < 0 || y < 0 || x + fp.w > TILES || y + fp.h + 1 > TILES) return 'invalid';
+  const rt = getSectorRt(w, sector);
+  for (let ty = y; ty <= y + fp.h; ty++) {
+    for (let tx = x; tx < x + fp.w; tx++) if (rt.occ[ty * TILES + tx]) return 'occupied';
+  }
+  const m = PLACE_MARGIN;
+  const cx0 = Math.max(0, Math.floor((x - m) / TPC)), cx1 = Math.min(CELLS - 1, Math.floor((x + fp.w + m) / TPC));
+  const cy0 = Math.max(0, Math.floor((y - m) / TPC)), cy1 = Math.min(CELLS - 1, Math.floor((y + fp.h + m) / TPC));
+  for (let cy = cy0; cy <= cy1; cy++) {
+    for (let cx = cx0; cx <= cx1; cx++) {
+      if (rt.kind[cx + cy * CELLS] === NODE_NONE) continue;
+      const nt = nodeTile(w.state.world.seed, sector, cx, cy);
+      if (nt.x >= x - m && nt.x < x + fp.w + m && nt.y >= y - m && nt.y < y + fp.h + 1 + m) return 'occupied';
+    }
+  }
+  return null;
 }
 
 /** Ратуша в центрі домашнього сектора + стартові поселенці й запас. Після claimStart. */
@@ -27,7 +54,8 @@ export function startCity(w: SimWorld, playerId: string): BuildingState | null {
   const pi = w.state.players.findIndex((p) => p.id === playerId);
   const home = w.state.players[pi]?.homeSector;
   if (pi < 0 || home === null || home === undefined) return null;
-  const hall = addBuilding(w, 'townhall', playerId, home, CENTER, CENTER);
+  const fp = FOOTPRINT.townhall!;
+  const hall = addBuilding(w, 'townhall', playerId, home, CENTER_TILE - (fp.w >> 1), CENTER_TILE - (fp.h >> 1));
   hall.stock = { ...START_STOCK };
   for (let k = 0; k < START_SETTLERS; k++) spawnNpc(w, pi, home, hall.entrance.x, hall.entrance.y);
   w.events.push({ e: 'building_placed', building: hall.id });
@@ -94,10 +122,8 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
       const cost = COSTS[cmd.kind];
       if (!cost) return no('invalid');
       const { x, y } = cmd.cell;
-      if (x < 0 || y < 0 || x >= S || y + 1 >= S) return no('invalid');
-      const rt = getSectorRt(w, cmd.sector);
-      const free = (i: number) => !rt.blocked[i] && rt.kind[i] === NODE_NONE;
-      if (!free(y * S + x) || rt.blocked[(y + 1) * S + x]) return no('occupied');
+      const why = checkPlace(w, cmd.sector, cmd.kind, x, y);
+      if (why) return no(why);
       const chk = buildCheck(w, player, cmd.kind);
       if (!chk.ok) return no('no_resources');
       if (!chk.free) pay(w, player, cost);
@@ -113,7 +139,7 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
       if (b.kind === 'townhall') return no('invalid');
       for (const id of [...b.workers]) unassign(w, id);
       st.buildings = st.buildings.filter((x) => x !== b);
-      getSectorRt(w, b.sector).blocked[b.cell.y * S + b.cell.x] = 0;
+      markFootprint(getSectorRt(w, b.sector), b, -1);
       rebuildIndex(w);
       w.events.push({ e: 'building_removed', building: b.id });
       return { ok: true };

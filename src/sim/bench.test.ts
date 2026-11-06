@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RESOURCE_KINDS, SECTOR_SIZE, type PlayerState } from '../shared';
-import { applyCommand, createWorld, getSectorRt, spawnNpc, staffBuilding, stepWorld, type SimWorld } from './index';
+import { applyCommand, checkPlace, createWorld, getSectorRt, spawnNpc, staffBuilding, stepWorld, type SimWorld } from './index';
 import { mulberry32 } from './rng';
 
 const player: PlayerState = {
@@ -16,12 +16,11 @@ function build(total: number, sectors: number): SimWorld {
   const perSector = Math.ceil(total / sectors);
   for (let s = 0; s < sectors; s++) {
     w.state.sectors[s].owner = 'p';
-    const rt = getSectorRt(w, s);
+    getSectorRt(w, s);
     const put = (kind: 'warehouse' | 'lumberjack' | 'quarry' | 'sawmill') => {
-      for (let t = 0; t < 500; t++) {
-        const x = 2 + Math.floor(rnd() * (SECTOR_SIZE - 4)), y = 2 + Math.floor(rnd() * (SECTOR_SIZE - 5));
-        const i = y * SECTOR_SIZE + x;
-        if (rt.blocked[i] || rt.blocked[i + SECTOR_SIZE] || rt.kind[i] || rt.kind[i + SECTOR_SIZE]) continue;
+      for (let t = 0; t < 2000; t++) {
+        const x = Math.floor(rnd() * (SECTOR_SIZE - 14)), y = Math.floor(rnd() * (SECTOR_SIZE - 14));
+        if (checkPlace(w, s, kind, x, y) !== null) continue;
         if (applyCommand(w, { player: 'p', seq: 0, cmd: { type: 'place_building', kind, sector: s, cell: { x, y } } }).ok) {
           return w.state.buildings[w.state.buildings.length - 1];
         }

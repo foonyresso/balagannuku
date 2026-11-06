@@ -2,7 +2,7 @@ import type {
   BuildingId, BuildingState, GameEvent, GameState, NpcStore, PackedNpcStore, PlayerState, SectorState,
   SerializedGameState, TrailLayer,
 } from '../shared';
-import { SECTOR_SIZE, createTrailLayer, stageFromTraffic } from '../shared';
+import { SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, stageFromTraffic } from '../shared';
 import { fbm } from './noise';
 import { hash2 } from './rng';
 import { NPC_CAPACITY, STONE_AMOUNT, TREE_AMOUNT } from './balance';
@@ -10,18 +10,25 @@ import { createInitialState } from './worldgen';
 import { pack, unpack } from './pack';
 
 export const NODE_NONE = 0, NODE_TREE = 1, NODE_STONE = 2;
-export const S = SECTOR_SIZE;
-export const CENTER = S >> 1;
+export const T = SECTOR_SIZE; // тайлів на сторону
+export const C = SECTOR_CELLS; // клітинок навігації на сторону
+export const TPC = TILES_PER_CELL;
+export const CENTER_CELL = C >> 1;
+export const CENTER_TILE = T >> 1;
+export const tileIndex = (tx: number, ty: number): number => ty * T + tx;
+export const cellOfTile = (tx: number, ty: number): number => Math.floor(ty / TPC) * C + Math.floor(tx / TPC);
 
-/** Робочі (не серіалізовані напряму) дані сектора. */
+/** Робочі (не серіалізовані напряму) дані сектора. Тайли — T×T, клітинки навігації — C×C. */
 export interface SectorRt {
   id: number;
-  trails: TrailLayer;
-  stage: Uint8Array;
-  kind: Uint8Array; // вид вузла (похідний від seed)
-  amount: Uint8Array; // залишок у вузлі
-  blocked: Uint8Array; // зайнято будівлею
-  forest: Uint8Array; // 1 = є живе дерево
+  trails: TrailLayer; // трафік по тайлах
+  stage: Uint8Array; // стадія стежки по тайлах
+  cellStage: Uint8Array; // макс. стадія тайлів у клітинці (для вартості A*)
+  occ: Uint8Array; // тайл зайнятий footprint будівлі
+  blocked: Uint8Array; // клітинка: скільки будівель її перекривають (навігація)
+  kind: Uint8Array; // клітинка: вид вузла ресурсу (похідний від seed)
+  amount: Uint8Array; // клітинка: стан вузла (0 = зрубано, відростає)
+  forest: Uint8Array; // клітинка: 1 = є живе дерево (дорожче йти)
   buildings: BuildingState[];
 }
 
@@ -31,8 +38,9 @@ export interface NpcRt {
   timer: Uint16Array;
   workplace: Int32Array;
   aux: Int32Array; // допоміжне: клітинка вузла / будівля-джерело
-  path: (Int16Array | null)[];
-  pathPos: Uint16Array;
+  path: (Float32Array | null)[]; // пари (x,y) у тайлах
+  pathPos: Uint16Array; // індекс у path (кроком 2)
+  tile: Int32Array; // тайл, у якому NPC був востаннє (для трафіку)
 }
 
 export interface SimWorld {
@@ -65,13 +73,22 @@ function createNpcRt(capacity: number): NpcRt {
   return {
     phase: new Uint8Array(capacity), timer: new Uint16Array(capacity),
     workplace: new Int32Array(capacity).fill(-1), aux: new Int32Array(capacity).fill(-1),
-    path: new Array(capacity).fill(null), pathPos: new Uint16Array(capacity),
+    path: new Array(capacity).fill(null), pathPos: new Uint16Array(capacity), tile: new Int32Array(capacity).fill(-1),
   };
 }
 
-/** Вид і початковий залишок вузла ресурсу в клітинці — чиста функція від seed. */
+/** Тайл-якір вузла в клітинці (детермінований зсув усередині клітинки, щоб ліс не був ґратчастим). */
+export function nodeTile(seed: number, sectorId: number, cx: number, cy: number): { x: number; y: number } {
+  const j = TPC - 2;
+  return {
+    x: cx * TPC + 1 + Math.floor(hash2(cx, cy, seed ^ 0x51 ^ sectorId) * (j + 1)),
+    y: cy * TPC + 1 + Math.floor(hash2(cy, cx, seed ^ 0xa3 ^ sectorId) * (j + 1)),
+  };
+}
+
+/** Вид і початковий залишок вузла (клітинка навігації) ресурсу в клітинці — чиста функція від seed. */
 export function nodeAt(seed: number, sec: SectorState, x: number, y: number): [number, number] {
-  if (Math.abs(x - CENTER) < 5 && Math.abs(y - CENTER) < 5) return [NODE_NONE, 0];
+  if (Math.abs(x - CENTER_CELL) < 5 && Math.abs(y - CENTER_CELL) < 5) return [NODE_NONE, 0];
   const wood = sec.richness.wood ?? 0.3, stone = sec.richness.stone ?? 0.3;
   const ox = sec.id * 13.7, oy = seed % 97;
   const h = hash2(x, y, seed ^ (sec.id * 7919));
@@ -84,27 +101,49 @@ export function getSectorRt(w: SimWorld, id: number): SectorRt {
   let rt = w.sectors.get(id);
   if (rt) return rt;
   const sec = w.state.sectors[id];
-  const n = S * S;
+  const nc = C * C, nt = T * T;
   rt = {
-    id, trails: createTrailLayer(), stage: new Uint8Array(n), kind: new Uint8Array(n),
-    amount: new Uint8Array(n), blocked: new Uint8Array(n), forest: new Uint8Array(n), buildings: [],
+    id, trails: createTrailLayer(), stage: new Uint8Array(nt), cellStage: new Uint8Array(nc), occ: new Uint8Array(nt),
+    blocked: new Uint8Array(nc), kind: new Uint8Array(nc), amount: new Uint8Array(nc), forest: new Uint8Array(nc), buildings: [],
   };
   if (sec.trails) rt.trails.traffic = unpack(sec.trails);
   const saved = sec.nodes ? unpack<Uint8Array>(sec.nodes) : null;
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const i = y * S + x;
+  for (let y = 0; y < C; y++) {
+    for (let x = 0; x < C; x++) {
+      const i = y * C + x;
       const [k, a] = nodeAt(w.state.world.seed, sec, x, y);
       rt.kind[i] = k;
       rt.amount[i] = saved ? saved[i] : a;
       rt.forest[i] = k === NODE_TREE && rt.amount[i] > 0 ? 1 : 0;
-      rt.stage[i] = stageFromTraffic(rt.trails.traffic[i]);
     }
   }
+  for (let i = 0; i < nt; i++) {
+    const st = stageFromTraffic(rt.trails.traffic[i]);
+    rt.stage[i] = st;
+    if (st) { const c = cellOfTile(i % T, (i / T) | 0); if (st > rt.cellStage[c]) rt.cellStage[c] = st; }
+  }
   w.sectors.set(id, rt);
-  for (const b of w.state.buildings) if (b.sector === id) rt.blocked[b.cell.y * S + b.cell.x] = 1;
+  for (const b of w.state.buildings) if (b.sector === id) markFootprint(rt, b, 1);
   rebuildIndex(w);
   return rt;
+}
+
+/** Позначити (delta=1) або зняти (delta=-1) footprint будівлі в occ (тайли) і blocked (клітинки). */
+export function markFootprint(rt: SectorRt, b: BuildingState, delta: 1 | -1): void {
+  for (let y = b.cell.y; y < b.cell.y + b.size.h; y++) {
+    for (let x = b.cell.x; x < b.cell.x + b.size.w; x++) rt.occ[y * T + x] = delta === 1 ? 1 : 0;
+  }
+  const c0x = Math.floor(b.cell.x / TPC), c1x = Math.floor((b.cell.x + b.size.w - 1) / TPC);
+  const c0y = Math.floor(b.cell.y / TPC), c1y = Math.floor((b.cell.y + b.size.h - 1) / TPC);
+  for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) rt.blocked[cy * C + cx] += delta;
+}
+
+/** Оновити cellStage клітинки після зміни стадії тайла. */
+export function refreshCellStage(rt: SectorRt, cell: number): void {
+  const cx = cell % C, cy = (cell / C) | 0;
+  let m = 0;
+  for (let y = cy * TPC; y < cy * TPC + TPC; y++) for (let x = cx * TPC; x < cx * TPC + TPC; x++) m = Math.max(m, rt.stage[y * T + x]);
+  rt.cellStage[cell] = m;
 }
 
 /** Перебудувати індекси будівель (після змін списку). */

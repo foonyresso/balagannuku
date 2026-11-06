@@ -1,15 +1,18 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import type { BuildingKind } from '../shared';
-import { SECTOR_SIZE, TrailStage } from '../shared';
+import { SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES } from '../shared';
 import {
-  applyCommand, buildCheck, getSectorRt, ratePerSec, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
+  applyCommand, buildCheck, checkPlace, getSectorRt, nodeTile, ratePerSec, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
 } from '../sim';
-import { COSTS, MAX_WORKERS } from '../sim/balance';
+import { COSTS, FOOTPRINT, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
 import { planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
 
-/** Розмір клітинки міста в одиницях площини (та сама проєкція, що й у карти). */
-const C = 16;
-const BUILD_H: Record<string, number> = { townhall: 22, warehouse: 12, lumberjack: 12, quarry: 10, sawmill: 16, house: 14 };
+/** Розмір ТАЙЛА в одиницях площини (та сама проєкція, що й у карти): сектор = SECTOR_SIZE тайлів ≈ 1024 одиниці. */
+const TILE = 4;
+/** Висота будівель (одиниці площини); ширина/глибина — з footprint у тайлах. */
+const BUILD_H: Record<string, number> = { townhall: 30, warehouse: 18, lumberjack: 16, quarry: 14, sawmill: 22, house: 18 };
+const BUCKET = 2; // тайлів на шар глибини
+const NB = SECTOR_SIZE / BUCKET;
 
 const STAGE_COLORS = [0, 0x5a4a30, 0x8a7448, 0xb8b0a0];
 const BUILD_COLORS: Record<string, number> = {
@@ -29,9 +32,10 @@ const WHY: Record<string, string> = {
 };
 const PROF_COLORS = [0xeeeeee, 0x66bb6a, 0xbdbdbd, 0x90caf9, 0xff8a65, 0xba68c8, 0xffcc80];
 
-interface Obj { x: number; y: number; draw: (g: Graphics) => void; pick: number[] | null; cell: { x: number; y: number } | null }
+interface Obj { draw: (g: Graphics) => void; pick: number[] | null; tile: { x: number; y: number } | null }
+type Tile = { x: number; y: number };
 
-/** Вигляд міста одного сектора в тій самій ізометрії, що й карта: пан, зум, малювання за глибиною, пікінг за порядком малювання. */
+/** Вигляд міста одного сектора в тій самій ізометрії, що й карта: тайли, пан, зум, малювання за глибиною, пікінг за порядком малювання. */
 export class CityView {
   private root = new Container();
   private ground = new Graphics();
@@ -42,23 +46,24 @@ export class CityView {
   private selected: BuildingKind | null = 'lumberjack';
   private timer: number | undefined;
   private frame = 0;
-  private hover: { x: number; y: number } | null = null;
+  private hover: Tile | null = null;
   private cam: Camera;
   private drag: { x: number; y: number; moved: boolean } | null = null;
   private rows: Obj[][] = [];
+  private groundDirty = true;
   private flowRows = new Map<number, { row: HTMLElement; text: HTMLElement; btn: HTMLButtonElement | null }>();
   private flowTitle: HTMLElement | null = null;
 
   constructor(private app: Application, private w: SimWorld, private player: string, private sector: number, private onExit: () => void) {
     this.root.addChild(this.ground);
-    for (let r = 0; r < SECTOR_SIZE; r++) {
+    for (let r = 0; r < NB; r++) {
       const o = new Graphics(), n = new Graphics();
       this.rowObj.push(o); this.rowNpc.push(n);
       this.root.addChild(o, n);
     }
     this.root.addChild(this.hoverG);
     app.stage.addChild(this.root);
-    const mid = planeToIso((SECTOR_SIZE * C) / 2, (SECTOR_SIZE * C) / 2);
+    const mid = planeToIso((SECTOR_SIZE * TILE) / 2, (SECTOR_SIZE * TILE) / 2);
     this.cam = { zoom: 1, x: app.screen.width / 2 - mid.x, y: app.screen.height / 2 - mid.y };
     this.applyCam();
     this.panel = document.createElement('div');
@@ -71,7 +76,10 @@ export class CityView {
     el.addEventListener('pointerup', this.up);
     el.addEventListener('wheel', this.wheel, { passive: false });
     app.ticker.add(this.draw);
-    this.timer = window.setInterval(() => { stepWorld(this.w); }, 100);
+    this.timer = window.setInterval(() => {
+      stepWorld(this.w);
+      if (this.w.events.some((e) => e.e === 'trail_stage_changed')) this.groundDirty = true;
+    }, 100);
     this.rebuild();
   }
 
@@ -80,15 +88,20 @@ export class CityView {
     this.root.scale.set(this.cam.zoom);
   }
 
-  /** Клітинка під курсором: спершу об'єкти від найближчого до глядача (за порядком малювання), далі земля. */
-  private pickCell(e: PointerEvent): { x: number; y: number } | null {
+  /** Тайл під курсором: спершу об'єкти від найближчого до глядача (за порядком малювання), далі земля. */
+  private pickTile(e: PointerEvent): Tile | null {
     const p = { x: (e.clientX - this.cam.x) / this.cam.zoom, y: (e.clientY - this.cam.y) / this.cam.zoom };
-    for (let r = SECTOR_SIZE - 1; r >= 0; r--) {
-      for (const o of this.rows[r]) if (o.pick && o.cell && pointInPoly(p.x, p.y, o.pick)) return o.cell;
+    for (let r = NB - 1; r >= 0; r--) {
+      for (const o of this.rows[r]) if (o.pick && o.tile && pointInPoly(p.x, p.y, o.pick)) return o.tile;
     }
     const g = screenToPlane(e.clientX, e.clientY, this.cam);
-    const x = Math.floor(g.x / C), y = Math.floor(g.y / C);
+    const x = Math.floor(g.x / TILE), y = Math.floor(g.y / TILE);
     return x >= 0 && y >= 0 && x < SECTOR_SIZE && y < SECTOR_SIZE ? { x, y } : null;
+  }
+  /** Лівий верхній тайл footprint, центрованого під курсором. */
+  private anchor(t: Tile): Tile {
+    const fp = this.selected ? FOOTPRINT[this.selected] : undefined;
+    return fp ? { x: t.x - (fp.w >> 1), y: t.y - (fp.h >> 1) } : t;
   }
   private move = (e: PointerEvent): void => {
     if (this.drag) {
@@ -98,17 +111,17 @@ export class CityView {
         this.drag.x = e.clientX; this.drag.y = e.clientY; this.applyCam();
       }
     }
-    this.hover = this.pickCell(e);
+    this.hover = this.pickTile(e);
   };
   private down = (e: PointerEvent): void => { this.drag = { x: e.clientX, y: e.clientY, moved: false }; };
   private up = (e: PointerEvent): void => {
     const d = this.drag; this.drag = null;
     if (!d || d.moved) return;
-    const c = this.pickCell(e);
-    if (!c || !this.selected) return;
-    const r = applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'place_building', kind: this.selected, sector: this.sector, cell: c } });
+    const t = this.pickTile(e);
+    if (!t || !this.selected) return;
+    const r = applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'place_building', kind: this.selected, sector: this.sector, cell: this.anchor(t) } });
     const msg = this.panel.querySelector('#cityMsg')!;
-    if (!r.ok) { msg.textContent = r.reason === 'no_resources' ? `Не вистачає: ${this.missingText(this.selected)}` : 'Тут не можна'; return; }
+    if (!r.ok) { msg.textContent = r.reason === 'no_resources' ? `Не вистачає: ${this.missingText(this.selected)}` : 'Тут не можна (зайнято, ліс/камінь поруч або край сектора)'; return; }
     const b = this.w.state.buildings[this.w.state.buildings.length - 1];
     const n = staffBuilding(this.w, this.player, b.id);
     msg.textContent = n ? `Побудовано, працівників: ${n}` : MAX_WORKERS[b.kind] ? 'Побудовано, немає вільних працівників' : 'Побудовано';
@@ -131,7 +144,7 @@ export class CityView {
       return `<button data-k="${k}">${BUILD_NAMES[k]} <small>(${cost})</small></button>`;
     }).join('');
     this.panel.innerHTML = `<h2>Місто</h2><div id="cityRes"></div><div class="btns">${btns}</div>` +
-      `<div id="cityMsg">Обери будівлю й клікни по клітинці</div><div id="cityFlow"></div><button id="cityBack">← До карти</button>`;
+      `<div id="cityMsg">Обери будівлю й клікни по землі</div><div id="cityFlow"></div><button id="cityBack">← До карти</button>`;
     this.panel.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((b) => {
       b.onclick = () => { this.selected = b.dataset.k as BuildingKind; this.markSel(); };
     });
@@ -149,62 +162,80 @@ export class CityView {
     this.panel.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((b) => b.classList.toggle('sel', b.dataset.k === this.selected));
   }
 
-  private quad(x: number, y: number, w: number, h: number, z = 0): number[] {
-    const p = [planeToIso(x, y, z), planeToIso(x + w, y, z), planeToIso(x + w, y + h, z), planeToIso(x, y + h, z)];
-    return p.flatMap((v: Vec2) => [v.x, v.y]);
+  /** Прямокутник у тайлах -> ізо-полігон (на висоті z). */
+  private quad(tx: number, ty: number, tw: number, th: number, z = 0): number[] {
+    const x = tx * TILE, y = ty * TILE, w = tw * TILE, h = th * TILE;
+    return [planeToIso(x, y, z), planeToIso(x + w, y, z), planeToIso(x + w, y + h, z), planeToIso(x, y + h, z)].flatMap((v: Vec2) => [v.x, v.y]);
   }
 
-  /** Перебудувати землю й об'єкти (дерева, камінь, будівлі) по рядках глибини. Викликається рідко. */
-  private rebuild(): void {
+  /** Земля й стежки: «пензель» шириною за стадією (стежка вузька, вимощена дорога широка). */
+  private rebuildGround(): void {
     const rt = getSectorRt(this.w, this.sector);
     const g = this.ground;
     g.clear();
-    g.poly(this.quad(0, 0, SECTOR_SIZE * C, SECTOR_SIZE * C)).fill(0x2a3a22);
-    this.rows = Array.from({ length: SECTOR_SIZE }, () => []);
-    for (let y = 0; y < SECTOR_SIZE; y++) {
-      for (let x = 0; x < SECTOR_SIZE; x++) {
-        const i = y * SECTOR_SIZE + x;
-        if (rt.stage[i] > TrailStage.None) g.poly(this.quad(x * C, y * C, C, C)).fill(STAGE_COLORS[rt.stage[i]]);
-        if (!rt.kind[i] || rt.blocked[i]) continue;
-        const cx = x * C + C / 2, cy = y * C + C / 2, grown = rt.amount[i] > 0, cell = { x, y };
-        if (rt.kind[i] === NODE_TREE) {
-          const top = planeToIso(cx, cy, 26), base = planeToIso(cx, cy, 0);
-          this.rows[y].push({
-            x, y, cell,
-            pick: grown ? [top.x - 6, top.y - 6, top.x + 6, top.y - 6, base.x + 6, base.y + 2, base.x - 6, base.y + 2] : null,
+    g.poly(this.quad(0, 0, SECTOR_SIZE, SECTOR_SIZE)).fill(0x2a3a22);
+    for (let st = 1; st <= 3; st++) {
+      const wd = TRAIL_BRUSH_TILES[st], off = (wd - 1) / 2;
+      for (let i = 0; i < rt.stage.length; i++) {
+        if (rt.stage[i] !== st) continue;
+        g.poly(this.quad((i % SECTOR_SIZE) - off, Math.floor(i / SECTOR_SIZE) - off, wd, wd)).fill(STAGE_COLORS[st]);
+      }
+    }
+    this.groundDirty = false;
+  }
+
+  /** Об'єкти (дерева, камінь, будівлі) по шарах глибини; висота й розмір — з footprint/розмірів у тайлах. */
+  private rebuild(): void {
+    const rt = getSectorRt(this.w, this.sector), seed = this.w.state.world.seed;
+    if (this.groundDirty) this.rebuildGround();
+    this.rows = Array.from({ length: NB }, () => []);
+    const bucket = (ty: number) => Math.min(NB - 1, Math.max(0, Math.floor(ty / BUCKET)));
+    for (let cy = 0; cy < SECTOR_CELLS; cy++) {
+      for (let cx = 0; cx < SECTOR_CELLS; cx++) {
+        const i = cy * SECTOR_CELLS + cx;
+        const kind = rt.kind[i];
+        if (!kind) continue;
+        const nt = nodeTile(seed, this.sector, cx, cy), grown = rt.amount[i] > 0;
+        const px = (nt.x + 0.5) * TILE, py = (nt.y + 0.5) * TILE, tile = { x: nt.x, y: nt.y };
+        const base = planeToIso(px, py, 0);
+        if (kind === NODE_TREE) {
+          const rad = (TREE_TILES * TILE) / 2, top = planeToIso(px, py, 22);
+          this.rows[bucket(nt.y)].push({
+            tile,
+            pick: grown ? [top.x - rad, top.y - rad, top.x + rad, top.y - rad, base.x + rad / 2, base.y + 2, base.x - rad / 2, base.y + 2] : null,
             draw: (gr) => {
               if (!grown) { gr.ellipse(base.x, base.y, 3, 2).fill(0x5d4037); return; }
-              const mid = planeToIso(cx, cy, 10);
+              const mid = planeToIso(px, py, 9);
               gr.rect(mid.x - 1.5, mid.y, 3, base.y - mid.y).fill(0x5d4037);
-              gr.ellipse(top.x, top.y + 4, 7, 9).fill(0x1b5e20);
+              gr.ellipse(top.x, top.y + 3, rad, rad * 1.25).fill(0x1b5e20);
             },
           });
-        } else if (rt.kind[i] === NODE_STONE) {
-          const base = planeToIso(cx, cy, 0);
-          this.rows[y].push({
-            x, y, cell, pick: null,
-            draw: (gr) => { gr.ellipse(base.x, base.y - (grown ? 3 : 1), grown ? 7 : 4, grown ? 5 : 2.5).fill(grown ? 0x78787f : 0x55555a); },
+        } else if (kind === NODE_STONE) {
+          const rw = (STONE_TILES * TILE) / 2;
+          this.rows[bucket(nt.y)].push({
+            tile, pick: null,
+            draw: (gr) => { gr.ellipse(base.x, base.y - (grown ? 3 : 1), grown ? rw : rw * 0.6, grown ? rw * 0.7 : rw * 0.35).fill(grown ? 0x78787f : 0x55555a); },
           });
         }
       }
     }
     for (const b of rt.buildings) {
-      const h = BUILD_H[b.kind] ?? 12, col = BUILD_COLORS[b.kind] ?? 0xffffff;
-      const x0 = b.cell.x * C, y0 = b.cell.y * C;
-      const top = this.quad(x0, y0, C, C, h);
-      const front = [planeToIso(x0, y0 + C, h), planeToIso(x0 + C, y0 + C, h), planeToIso(x0 + C, y0 + C, 0), planeToIso(x0, y0 + C, 0)].flatMap((v) => [v.x, v.y]);
+      const h = BUILD_H[b.kind] ?? 16, col = BUILD_COLORS[b.kind] ?? 0xffffff;
+      const x0 = b.cell.x * TILE, y0 = b.cell.y * TILE, bw = b.size.w * TILE, bh = b.size.h * TILE;
+      const top = this.quad(b.cell.x, b.cell.y, b.size.w, b.size.h, h);
+      const front = [planeToIso(x0, y0 + bh, h), planeToIso(x0 + bw, y0 + bh, h), planeToIso(x0 + bw, y0 + bh, 0), planeToIso(x0, y0 + bh, 0)].flatMap((v) => [v.x, v.y]);
       const pick = [top[0], top[1], top[2], top[3], front[4], front[5], front[6], front[7]]; // силует: верх + фасад
-      this.rows[b.cell.y].push({
-        x: b.cell.x, y: b.cell.y, cell: b.cell, pick,
+      this.rows[bucket(b.cell.y + b.size.h - 1)].push({
+        tile: b.cell, pick,
         draw: (gr) => {
           gr.poly(front).fill({ color: col }).stroke({ width: 1, color: 0x000000, alpha: 0.6 });
           gr.poly(top).fill({ color: lighten(col) }).stroke({ width: 1, color: 0x000000, alpha: 0.6 });
-          const e = planeToIso(b.entrance.x * C + C / 2, b.entrance.y * C + 2, 0);
+          const e = planeToIso((b.entrance.x + 0.5) * TILE, (b.entrance.y + 0.5) * TILE, 0);
           gr.ellipse(e.x, e.y, 3, 1.5).fill(0x000000);
         },
       });
     }
-    for (let r = 0; r < SECTOR_SIZE; r++) {
+    for (let r = 0; r < NB; r++) {
       const gr = this.rowObj[r];
       gr.clear();
       for (const o of this.rows[r]) o.draw(gr);
@@ -214,17 +245,24 @@ export class CityView {
   private draw = (): void => {
     const n = this.w.state.npcs;
     for (const g of this.rowNpc) g.clear();
+    const hw = (NPC_TILES * TILE) / 2; // NPC ≈ 2×2 тайли (візуально), без жорсткої колізії
     for (let i = 0; i < n.capacity; i++) {
       if (!n.alive[i] || n.sector[i] !== this.sector) continue;
-      const px = n.x[i] * C, py = n.y[i] * C;
-      const row = Math.min(SECTOR_SIZE - 1, Math.max(0, Math.floor(n.y[i])));
-      const base = planeToIso(px, py, 0), body = planeToIso(px, py, 7);
+      const px = n.x[i] * TILE, py = n.y[i] * TILE;
+      const row = Math.min(NB - 1, Math.max(0, Math.floor(n.y[i] / BUCKET)));
+      const base = planeToIso(px, py, 0), body = planeToIso(px, py, hw * 1.6);
       const g = this.rowNpc[row];
-      g.ellipse(base.x, base.y, 3, 1.5).fill({ color: 0x000000, alpha: 0.35 });
-      g.circle(body.x, body.y, 3).fill(n.carryAmount[i] ? 0xfff176 : PROF_COLORS[n.profession[i]] ?? 0xffffff);
+      g.ellipse(base.x, base.y, hw, hw * 0.5).fill({ color: 0x000000, alpha: 0.35 });
+      g.roundRect(body.x - hw * 0.8, body.y - hw * 0.2, hw * 1.6, hw * 2.2, hw * 0.6)
+        .fill(n.carryAmount[i] ? 0xfff176 : PROF_COLORS[n.profession[i]] ?? 0xffffff);
     }
     this.hoverG.clear();
-    if (this.hover) this.hoverG.poly(this.quad(this.hover.x * C, this.hover.y * C, C, C)).stroke({ width: 1.5, color: 0xffffff });
+    if (this.hover) {
+      const t = this.selected ? this.anchor(this.hover) : this.hover, fp = this.selected ? FOOTPRINT[this.selected] : null;
+      const ok = !fp || checkPlace(this.w, this.sector, this.selected!, t.x, t.y) === null;
+      this.hoverG.poly(this.quad(t.x, t.y, fp?.w ?? 1, fp?.h ?? 1))
+        .fill({ color: ok ? 0x66ff66 : 0xff5050, alpha: 0.25 }).stroke({ width: 1.5, color: ok ? 0xaaffaa : 0xff8080 });
+    }
     if (++this.frame % 20 === 0) { this.rebuild(); this.updatePanel(); }
   };
 

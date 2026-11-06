@@ -2,13 +2,13 @@ import type { BuildingKind, Profession, ResourceKind } from '../shared';
 
 /** Баланс економіки (не впливає на формат сейва). */
 export const NPC_CAPACITY = 4096;
-export const NPC_SPEED = 0.25; // клітинок за тік на землі
+export const NPC_SPEED = 1; // тайлів за тік на землі (= 0.25 клітинки навігації)
 export const CARRY_CAP = 3;
 export const WORK_TICKS = 15; // добування одиниці
 export const MILL_TICKS = 20; // 2 дерева -> 1 дошка
 export const WAIT_TICKS = 15; // очікування при нестачі
 /** Радіус пошуку вузла від будівлі (клітинок). За замовчуванням — увесь сектор: відстань не заважає роботі. */
-export const WORK_RADIUS = 64;
+export const WORK_RADIUS = 64; // у клітинках навігації
 export const ATTACHED_WORK_MULT = 0.8; // будівля на дорозі працює швидше
 export const TREE_AMOUNT = 3;
 export const STONE_AMOUNT = 8;
@@ -43,3 +43,17 @@ export const WOOD_RESERVE = 10;
  * >1 — сильніша тяга. Стадії обмежені Paved, тож петля «трафік -> дорога -> трафік» не росте безмежно.
  */
 export const ROAD_PULL = 1;
+
+/** Footprint будівель у тайлах (ширина × глибина). Конфіг: змінюється без зміни формату сейва (розмір лежить у будівлі). */
+export const FOOTPRINT: Partial<Record<BuildingKind, { w: number; h: number }>> = {
+  townhall: { w: 20, h: 20 },
+  warehouse: { w: 12, h: 12 },
+  lumberjack: { w: 8, h: 8 },
+  quarry: { w: 8, h: 8 },
+  sawmill: { w: 10, h: 10 },
+  house: { w: 6, h: 6 },
+};
+/** Візуальний розмір у тайлах (без жорсткої колізії): NPC 2×2, дерево 3×3, камінь 4×4. */
+export const NPC_TILES = 2, TREE_TILES = 3, STONE_TILES = 4;
+/** Скільки тайлів навколо footprint має бути вільним від вузлів ресурсів при будівництві. */
+export const PLACE_MARGIN = 1;

@@ -12,7 +12,7 @@ export interface HexCoord {
   r: number;
 }
 
-/** Координата клітинки всередині сектора (0..SECTOR_SIZE-1). */
+/** Координата ТАЙЛА всередині сектора (0..SECTOR_SIZE-1). */
 export interface CellCoord {
   x: number;
   y: number;
