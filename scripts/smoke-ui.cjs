@@ -103,6 +103,36 @@ const check = (name, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', name
   check('повторний клік по вкладці згортає панель', !(await p.isVisible('#cityBody')));
 
 
+  // Робітники: +/−, вільні/зайняті, призначення
+  const slots = async () => (await p.textContent('#slotNum')).trim();
+  const cur = async () => Number((await slots()).split('/')[0]);
+  await p.evaluate((id) => window.__city.select({ t: 'building', id }, false), bl.id);
+  await p.waitForTimeout(300);
+  const c0 = await cur();
+  check('у споруді є слоти X/Y і працівники', c0 > 0, await slots());
+  await p.click('button[data-slot="-"]'); await p.waitForTimeout(300);
+  check('«−» зменшує кількість працівників', (await cur()) === c0 - 1, await slots());
+  await p.click('button[data-tab=people]'); await p.waitForTimeout(300);
+  await p.click('button[data-f=free]'); await p.waitForTimeout(300);
+  check('вкладка «Вільні» показує звільненого', (await p.$$('#peopleList .row')).length >= 1);
+  await p.click('button[data-f=busy]'); await p.waitForTimeout(300);
+  check('вкладка «Зайняті» має рядки', (await p.$$('#peopleList .row')).length >= 1);
+  await p.click('button[data-tab=people]');
+  await p.click('button[data-slot="+"]'); await p.waitForTimeout(300);
+  check('«+» не перевищує максимум', (await cur()) <= Number((await slots()).split('/')[1]), await slots());
+  const npcId = await p.evaluate(() => window.__city.debugState().npcs[0].id);
+  await p.evaluate((id) => window.__city.select({ t: 'npc', id }, false), npcId);
+  await p.waitForTimeout(300);
+  const info = await p.textContent('#cityInfo');
+  check('вікно жителя: Перки і «Призначити на роботу»', /Перки/.test(info) && /Призначити на роботу/.test(info), info);
+  const btn = await p.$('#infoAssign button');
+  if (btn) {
+    await btn.click(); await p.waitForTimeout(300);
+    const t2 = (await p.textContent('#cityInfo')).replace(/\s/g, '');
+    check('призначення у споруду з вікна жителя', !t2.includes('Роботанемає'), t2);
+  }
+  await p.keyboard.press('Escape');
+
   // Керування часом
   await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
   const rate = async (ms) => { const a = (await st()).tick; await p.waitForTimeout(ms); return ((await st()).tick - a) / (ms / 1000); };

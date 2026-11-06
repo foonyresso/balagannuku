@@ -4,7 +4,7 @@ import { SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES } from '../shared';
 import {
   applyCommand, checkPlace, getSectorRt, nodeTile, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
 } from '../sim';
-import { FOOTPRINT, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
+import { FOOTPRINT, JOB_OF, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
 import { ISO_Y, clampCamToWorld, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
 import { Surroundings } from './surroundings';
 import { lerpPos, TickClock } from './interp';
@@ -86,6 +86,15 @@ export class CityView {
       follow: (on) => this.setFollow(on),
       back: () => this.onExit(),
       speed: (v) => this.userSpeed(v),
+      addWorker: (id) => this.addWorker(id),
+      removeWorker: (id) => {
+        const b = this.w.byId.get(id);
+        const npc = b?.workers[b.workers.length - 1];
+        if (npc !== undefined) this.cmd({ type: 'unassign_worker', npc });
+        this.refreshHud();
+      },
+      assign: (npc, id) => this.assignTo(npc, id),
+      unassign: (npc) => { this.cmd({ type: 'unassign_worker', npc }); this.refreshHud(); },
       pause: (id) => { const b = this.w.byId.get(id); if (b) applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'set_building_paused', building: id, paused: !b.paused } }); this.refreshHud(); },
       demolish: (id) => {
         const r = applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'demolish_building', building: id } });
@@ -398,6 +407,26 @@ export class CityView {
   };
 
   /** Камера слідує за виділеним (м'яко): об'єкт у центрі екрана, зум плавно наближається. */
+  private cmd(cmd: Parameters<typeof applyCommand>[1]['cmd']) {
+    return applyCommand(this.w, { player: this.player, seq: 0, cmd });
+  }
+  /** «+»: посадити найближчого вільного жителя; немає вільних — вмикаємо вибір зі списку робітників (можна перетягнути із чужої роботи). */
+  private addWorker(id: number): void {
+    const b = this.w.byId.get(id);
+    if (!b) return;
+    if (staffBuilding(this.w, this.player, id, 1)) { this.refreshHud(); return; }
+    this.hud.say('Вільних жителів немає: обери робітника зі списку, щоб перевести його сюди');
+    this.hud.openTab('people'); this.hud.assignTarget = id;
+    this.refreshHud();
+  }
+  private assignTo(npc: number, id: number): void {
+    const b = this.w.byId.get(id), job = b && JOB_OF[b.kind];
+    if (!b || !job) return;
+    const r = this.cmd({ type: 'assign_worker', npc, profession: job, building: id });
+    this.hud.say(r.ok ? 'Призначено' : r.reason === 'occupied' ? 'У споруді немає вільних місць' : 'Не можна призначити');
+    this.refreshHud();
+  }
+
   /** Гравець змінив швидкість (кнопка/клавіша); у мережевій грі гість не керує — лише хост. */
   private userSpeed(v: number): void {
     if (this.net.locked || !isSpeed(v)) return;
