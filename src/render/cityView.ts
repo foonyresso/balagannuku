@@ -46,6 +46,8 @@ export class CityView {
   private cam: Camera;
   private drag: { x: number; y: number; moved: boolean } | null = null;
   private rows: Obj[][] = [];
+  private flowRows = new Map<number, { row: HTMLElement; text: HTMLElement; btn: HTMLButtonElement | null }>();
+  private flowTitle: HTMLElement | null = null;
 
   constructor(private app: Application, private w: SimWorld, private player: string, private sector: number, private onExit: () => void) {
     this.root.addChild(this.ground);
@@ -237,14 +239,34 @@ export class CityView {
       btn.classList.toggle('no', !c.ok);
       btn.title = c.ok ? (c.free ? 'Перший лісоруб безкоштовний' : '') : `Не вистачає: ${this.missingText(k)}`;
     });
-    const rows = this.w.state.buildings.filter((b) => MAX_WORKERS[b.kind]).map((b) => {
+    // Рядки «Виробництво» живуть постійно й оновлюються на місці: інакше кнопка зникає між mousedown і click.
+    const host = this.panel.querySelector('#cityFlow')!;
+    const live = this.w.state.buildings.filter((b) => MAX_WORKERS[b.kind]);
+    if (!this.flowTitle) { this.flowTitle = document.createElement('h3'); this.flowTitle.textContent = 'Виробництво'; }
+    if (live.length && !this.flowTitle.parentNode) host.prepend(this.flowTitle);
+    if (!live.length && this.flowTitle.parentNode) this.flowTitle.remove();
+    const ids = new Set(live.map((b) => b.id));
+    for (const [id, r] of this.flowRows) if (!ids.has(id)) { r.row.remove(); this.flowRows.delete(id); }
+    for (const b of live) {
+      let r = this.flowRows.get(b.id);
+      if (!r) {
+        const row = document.createElement('div'), text = document.createElement('span');
+        row.append(text);
+        let btn: HTMLButtonElement | null = null;
+        if (b.kind === 'sawmill') { btn = document.createElement('button'); btn.dataset.pause = String(b.id); row.append(' ', btn); }
+        host.append(row);
+        r = { row, text, btn };
+        this.flowRows.set(b.id, r);
+      }
       const out = b.kind === 'sawmill' ? 'planks' : b.kind === 'quarry' ? 'stone' : 'wood';
       const rate = ratePerSec(this.w, b.id, 'produced', out);
       const starved = this.w.state.flows.last.byBuilding[b.id]?.starved ?? 0;
-      return `<div>${BUILD_NAMES[b.kind]} #${b.id} (${b.workers.length}/${MAX_WORKERS[b.kind]}): ${RES_NAMES[out]} ${rate.toFixed(2)}/с` +
-        `${starved > 20 ? ` <span class="bad">простій: ${WHY[this.w.why.get(b.id) ?? ''] ?? '?'}</span>` : ''}${b.roadAttached ? ' 🛣' : ''}${b.kind === 'sawmill' ? ` <button data-pause="${b.id}">${b.paused ? '▶ Пуск' : '⏸ Пауза'}</button>` : ''}</div>`;
-    }).join('');
-    this.panel.querySelector('#cityFlow')!.innerHTML = rows ? `<h3>Виробництво</h3>${rows}` : '';
+      const why = starved > 20 ? ` — простій: ${WHY[this.w.why.get(b.id) ?? ''] ?? '?'}` : '';
+      const txt = `${BUILD_NAMES[b.kind]} #${b.id} (${b.workers.length}/${MAX_WORKERS[b.kind]}): ${RES_NAMES[out]} ${rate.toFixed(2)}/с${why}${b.roadAttached ? ' 🛣' : ''}`;
+      if (r.text.textContent !== txt) r.text.textContent = txt;
+      r.text.classList.toggle('bad', starved > 20);
+      if (r.btn) { const l = b.paused ? '▶ Пуск' : '⏸ Пауза'; if (r.btn.textContent !== l) r.btn.textContent = l; }
+    }
   }
 
   destroy(): void {
