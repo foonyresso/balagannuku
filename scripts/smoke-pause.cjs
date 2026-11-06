@@ -19,7 +19,9 @@ const { chromium } = require('playwright');
     ok = (await p.textContent('#cityMsg')).startsWith('Побудовано');
   }
   console.log('built', ok);
-  await p.waitForSelector('button[data-pause]');
+  const bl = await p.evaluate(() => window.__city.debugState().buildings.slice(-1)[0]);
+  await p.mouse.click(bl.sx, bl.sy); // кнопка паузи живе у вікні інформації про лісопильню
+  await p.waitForSelector('button[data-pause]:not([hidden])');
   let paused = false, bad = 0;
   for (let i = 0; i < 12; i++) {
     await p.waitForTimeout(170 + (i % 4) * 90); // різні фази відносно перемальовування панелі

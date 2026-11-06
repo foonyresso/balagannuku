@@ -2,15 +2,22 @@ import { Application, Container, Graphics } from 'pixi.js';
 import type { BuildingKind } from '../shared';
 import { SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES } from '../shared';
 import {
-  applyCommand, buildCheck, checkPlace, residents, getSectorRt, nodeTile, ratePerSec, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
+  applyCommand, checkPlace, getSectorRt, nodeTile, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
 } from '../sim';
-import { COSTS, FOOTPRINT, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
+import { FOOTPRINT, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
 import { ISO_Y, clampCamToWorld, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
 import { Surroundings } from './surroundings';
 import { lerpPos, TickClock } from './interp';
+import { BuildingGhost } from './buildingGhost';
+import { CityHud } from '../ui/cityHud';
+import { TickPacer, SPEEDS, isSpeed } from '../ui/pacer';
+import { selPos, type Sel } from '../ui/info';
 
 /** Розмір ТАЙЛА в одиницях площини (та сама проєкція, що й у карти): сектор = SECTOR_SIZE тайлів ≈ 1024 одиниці. */
 const TILE = 4;
+/** У місті можна наблизитись упритул до одного жителя. */
+const CITY_ZOOM_MAX = 10;
+const FOLLOW_ZOOM = 3.5;
 /** Висота будівель (одиниці площини); ширина/глибина — з footprint у тайлах. */
 const BUILD_H: Record<string, number> = { townhall: 30, warehouse: 18, lumberjack: 16, quarry: 14, sawmill: 22, house: 18 };
 const NB = 256; // шарів глибини на сектор (стала кількість Graphics незалежно від розміру сектора)
@@ -20,28 +27,13 @@ const STAGE_COLORS = [0, 0x5a4a30, 0x8a7448, 0xb8b0a0];
 const BUILD_COLORS: Record<string, number> = {
   townhall: 0xffd54f, warehouse: 0xc19a6b, lumberjack: 0x2e7d32, quarry: 0x9e9e9e, sawmill: 0xd7a86e, house: 0xe57373,
 };
-const BUILD_NAMES: Partial<Record<BuildingKind, string>> = {
-  warehouse: 'Склад', lumberjack: 'Лісоруб', quarry: 'Кар’єр', sawmill: 'Лісопильня', house: 'Будинок',
-};
-const RES_NAMES: Record<string, string> = { wood: 'Дерево', stone: 'Камінь', planks: 'Дошки' };
 const lighten = (c: number): number => {
   const f = (v: number) => Math.min(255, Math.round(v + (255 - v) * 0.25));
   return (f((c >> 16) & 255) << 16) | (f((c >> 8) & 255) << 8) | f(c & 255);
 };
-const WHY: Record<string, string> = {
-  no_node: 'немає дерев/каменю в секторі', no_storage: 'немає куди віднести (склад?)', storage_full: 'склад повний',
-  no_wood: 'немає вільного дерева (резерв під будівництво)', no_path: 'немає шляху', paused: 'на паузі',
-};
-const STATE_TXT: Record<string, string> = {
-  free: 'вільний', to_node: 'іде до дерева/каменю', working: 'рубає/добуває', to_home: 'несе колоди до хатинки', processing: 'обтесує', carrying: 'несе готове', to_storage_take: 'іде по колоди',
-  to_mill: 'несе колоди на пилораму', milling: 'пиляє', planning: 'обирає ціль', waiting: 'чекає', no_path: 'немає шляху',
-};
-const PROF_TXT: Record<string, string> = {
-  idle: 'без роботи', lumberjack: 'лісоруб', miner: 'каменяр', sawyer: 'пильщик', carrier: 'носій', smith: 'коваль', hero: 'герой',
-};
 const PROF_COLORS = [0xeeeeee, 0x66bb6a, 0xbdbdbd, 0x90caf9, 0xff8a65, 0xba68c8, 0xffcc80];
 
-interface Obj { draw: (g: Graphics) => void; pick: number[] | null; tile: { x: number; y: number } | null }
+interface Obj { draw: (g: Graphics) => void; pick: number[] | null; tile: { x: number; y: number } | null; sel: Sel | null }
 type Tile = { x: number; y: number };
 
 /** Вигляд міста одного сектора в тій самій ізометрії, що й карта: тайли, пан, зум, малювання за глибиною, пікінг за порядком малювання. */
@@ -51,19 +43,27 @@ export class CityView {
   private rowObj: Graphics[] = [];
   private rowNpc: Graphics[] = [];
   private hoverG = new Graphics();
-  private panel: HTMLDivElement;
-  private selected: BuildingKind | null = 'lumberjack';
-  private timer: number | undefined;
+  private ghost = new BuildingGhost();
+  private hud: CityHud;
+  /** Режим будівництва: вибрана будівля; null = режим «вибір» (курсор порожній). Після однієї споруди повертається в null. */
+  private selected: BuildingKind | null = null;
+  private sel: Sel | null = null;
+  private hoverSel: Sel | null = null;
+  private following = false;
+  private targetZoom = 1;
+  private pacer = new TickPacer();
+  private speed = 1;
+  private resumeSpeed = 1;
   private frame = 0;
   private hover: Tile | null = null;
   private cam: Camera;
-  private drag: { x: number; y: number; moved: boolean } | null = null;
+  private drag: { x: number; y: number; moved: boolean; button: number } | null = null;
   private rows: Obj[][] = [];
   private groundDirty = true;
-  private flowRows = new Map<number, { row: HTMLElement; text: HTMLElement; btn: HTMLButtonElement | null }>();
-  private flowTitle: HTMLElement | null = null;
 
-  constructor(private app: Application, private w: SimWorld, private player: string, private sector: number, private onExit: () => void) {
+  constructor(private app: Application, private w: SimWorld, private player: string, private sector: number, private onExit: () => void,
+    private net: { locked?: boolean; speed?: number; onSpeed?: (s: number) => void } = {}) {
+    if (isSpeed(net.speed)) this.speed = net.speed;
     // Сусідні сектори (ландшафт): ряд над домашнім і по боках — під землею, ряд під ним — поверх шарів.
     this.surroundings = new Surroundings(app.renderer, w.state.world.seed, w.state.sectors[sector], (dx, dy) => this.neighbourSector(dx, dy));
     this.root.addChild(this.surroundings.back);
@@ -79,22 +79,29 @@ export class CityView {
     const mid = planeToIso((SECTOR_SIZE * TILE) / 2, (SECTOR_SIZE * TILE) / 2);
     this.cam = { zoom: 1, x: app.screen.width / 2 - mid.x, y: app.screen.height / 2 - mid.y };
     this.applyCam();
-    this.panel = document.createElement('div');
-    this.panel.id = 'cityPanel';
-    document.body.appendChild(this.panel);
-    this.buildPanel();
+    this.hud = new CityHud({
+      pickBuild: (k) => this.setBuild(k),
+      select: (sel, follow) => this.select(sel, follow),
+      deselect: () => this.deselect(),
+      follow: (on) => this.setFollow(on),
+      back: () => this.onExit(),
+      speed: (v) => this.userSpeed(v),
+      pause: (id) => { const b = this.w.byId.get(id); if (b) applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'set_building_paused', building: id, paused: !b.paused } }); this.refreshHud(); },
+      demolish: (id) => {
+        const r = applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'demolish_building', building: id } });
+        if (r.ok) { this.deselect(); this.groundDirty = true; this.rebuild(); this.hud.say('Споруду знесено'); }
+      },
+    }, w, player, sector);
     const el = app.canvas;
     el.addEventListener('pointermove', this.move);
     el.addEventListener('pointerdown', this.down);
     el.addEventListener('pointerup', this.up);
     el.addEventListener('wheel', this.wheel, { passive: false });
+    el.addEventListener('contextmenu', this.noMenu);
+    window.addEventListener('keydown', this.key);
     app.ticker.add(this.draw);
-    this.timer = window.setInterval(() => {
-      stepWorld(this.w);
-      this.clock.tick(performance.now());
-      if (this.w.events.some((e) => e.e === 'trail_stage_changed')) this.groundDirty = true;
-    }, 100);
     this.rebuild();
+    this.refreshHud();
   }
 
   private clock = new TickClock();
@@ -127,64 +134,130 @@ export class CityView {
     const fp = this.selected ? FOOTPRINT[this.selected] : undefined;
     return fp ? { x: t.x - (fp.w >> 1), y: t.y - (fp.h >> 1) } : t;
   }
+  private setBuild(k: BuildingKind | null): void {
+    this.selected = k;
+    if (k) { this.sel = null; this.following = false; }
+    this.refreshHud();
+  }
+  select(sel: Sel, follow: boolean): void {
+    this.selected = null;
+    this.sel = sel;
+    this.setFollow(follow);
+  }
+  deselect(): void {
+    this.sel = null; this.following = false;
+    this.refreshHud();
+  }
+  private setFollow(on: boolean): void {
+    this.following = on && !!this.sel;
+    if (this.following) this.targetZoom = Math.max(this.cam.zoom, FOLLOW_ZOOM);
+    this.refreshHud();
+  }
+  private refreshHud(): void {
+    this.hud.update({ selected: this.sel, build: this.selected, following: this.following, speed: this.speed, actualSpeed: this.pacer.actual, speedLocked: !!this.net.locked });
+  }
+
+  /** Що під курсором у режимі «вибір»: житель, потім споруда/дерево/камінь (за порядком малювання), потім дорога. */
+  private pickSel(e: PointerEvent): Sel | null {
+    const z = this.cam.zoom, pad = 4 / z;
+    const p = { x: (e.clientX - this.cam.x) / z, y: (e.clientY - this.cam.y) / z };
+    const n = this.w.state.npcs, hw = (NPC_TILES * TILE) / 2;
+    let best = -1, by = -Infinity;
+    for (let i = 0; i < n.capacity; i++) {
+      if (!n.alive[i] || n.sector[i] !== this.sector) continue;
+      const q = this.npcXY(i), px = q.x * TILE, py = q.y * TILE;
+      const body = planeToIso(px, py, hw * 1.6), base = planeToIso(px, py, 0);
+      if (Math.abs(p.x - body.x) <= hw + pad && p.y >= body.y - hw * 0.4 - pad && p.y <= base.y + hw * 0.4 + pad && base.y > by) { best = i; by = base.y; }
+    }
+    if (best >= 0) return { t: 'npc', id: best };
+    for (let r = NB - 1; r >= 0; r--) {
+      for (const o of this.rows[r]) if (o.sel && o.pick && pointInPoly(p.x, p.y, o.pick)) return o.sel;
+    }
+    const g = screenToPlane(e.clientX, e.clientY, this.cam);
+    const gx = Math.floor(g.x / TILE), gy = Math.floor(g.y / TILE);
+    if (gx < 0 || gy < 0 || gx >= SECTOR_SIZE || gy >= SECTOR_SIZE) return null;
+    const rt = getSectorRt(this.w, this.sector);
+    let st = 0, sx = gx, sy = gy;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const x = gx + dx, y = gy + dy;
+      if (x < 0 || y < 0 || x >= SECTOR_SIZE || y >= SECTOR_SIZE) continue;
+      const s2 = rt.stage[y * SECTOR_SIZE + x], half = (TRAIL_BRUSH_TILES[s2] - 1) / 2;
+      if (s2 > st && Math.abs(dx) <= half && Math.abs(dy) <= half) { st = s2; sx = x; sy = y; }
+    }
+    return st ? { t: 'road', x: sx, y: sy } : null;
+  }
+
+  /** Позиція жителя, як він намальований (інтерполяція між тіками), у тайлах. */
+  private npcXY(i: number): { x: number; y: number } {
+    const n = this.w.state.npcs, a = this.clock.alpha(performance.now());
+    return { x: lerpPos(this.w.npc.px[i], n.x[i], a), y: lerpPos(this.w.npc.py[i], n.y[i], a) };
+  }
+  private posOf(sel: Sel): { x: number; y: number } | null {
+    const p = selPos(this.w, this.sector, sel);
+    return p && sel.t === 'npc' ? this.npcXY(sel.id) : p;
+  }
+
+  private noMenu = (e: Event): void => e.preventDefault();
+  /** Esc: скасувати будівництво, інакше зняти виділення. */
+  private key = (e: KeyboardEvent): void => {
+    if (e.code === 'Space') { e.preventDefault(); this.userSpeed(this.speed ? 0 : this.resumeSpeed); return; }
+    const d = /^Digit([1-5])$/.exec(e.code); // 1..5 -> 1×, 2×, 5×, 10×, 100×
+    if (d) { this.userSpeed(SPEEDS[Number(d[1])]); return; }
+    if (e.key !== 'Escape') return;
+    if (this.selected) this.setBuild(null); else if (this.sel) this.deselect();
+  };
+
   private move = (e: PointerEvent): void => {
-    if (this.drag) {
+    if (this.drag && this.drag.button !== 2) {
       const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
       if (this.drag.moved || Math.abs(dx) + Math.abs(dy) > 4) {
+        if (!this.drag.moved && this.following) { this.following = false; this.refreshHud(); } // ручний пан знімає стеження
         this.drag.moved = true; this.cam.x += dx; this.cam.y += dy;
         this.drag.x = e.clientX; this.drag.y = e.clientY; this.applyCam();
       }
     }
-    this.hover = this.pickTile(e);
+    if (this.selected) { this.hover = this.pickTile(e); this.hoverSel = null; this.app.canvas.style.cursor = 'crosshair'; }
+    else {
+      this.hover = null;
+      this.hoverSel = this.drag?.moved ? null : this.pickSel(e);
+      this.app.canvas.style.cursor = this.hoverSel ? 'pointer' : 'default';
+    }
   };
-  private down = (e: PointerEvent): void => { this.drag = { x: e.clientX, y: e.clientY, moved: false }; };
+  private down = (e: PointerEvent): void => { this.drag = { x: e.clientX, y: e.clientY, moved: false, button: e.button }; };
   private up = (e: PointerEvent): void => {
     const d = this.drag; this.drag = null;
     if (!d || d.moved) return;
+    if (d.button === 2) { // ПКМ: скасувати будівництво або виділення
+      if (this.selected) this.setBuild(null); else this.deselect();
+      return;
+    }
+    if (d.button !== 0) return;
+    if (!this.selected) { // режим «вибір»
+      const s = this.pickSel(e);
+      if (s) this.select(s, s.t === 'npc'); else this.deselect();
+      return;
+    }
     const t = this.pickTile(e);
-    if (!t || !this.selected) return;
-    const r = applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'place_building', kind: this.selected, sector: this.sector, cell: this.anchor(t) } });
-    const msg = this.panel.querySelector('#cityMsg')!;
-    if (!r.ok) { msg.textContent = r.reason === 'no_resources' ? `Не вистачає: ${this.missingText(this.selected)}` : 'Тут не можна (зайнято, ліс/камінь поруч або край сектора)'; return; }
+    if (!t) return;
+    const kind = this.selected;
+    const r = applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'place_building', kind, sector: this.sector, cell: this.anchor(t) } });
+    if (!r.ok) { this.hud.say(r.reason === 'no_resources' ? `Не вистачає: ${this.hud.missingText(kind)}` : 'Тут не можна (зайнято, ліс/камінь поруч або край сектора)'); return; }
     const b = this.w.state.buildings[this.w.state.buildings.length - 1];
     const n = staffBuilding(this.w, this.player, b.id);
-    msg.textContent = n ? `Побудовано, працівників: ${n}` : MAX_WORKERS[b.kind] ? 'Побудовано, немає вільних працівників' : 'Побудовано';
+    this.hud.say(n ? `Побудовано, працівників: ${n}` : MAX_WORKERS[b.kind] ? 'Побудовано, немає вільних працівників' : 'Побудовано');
+    this.selected = null; // одна споруда за вибір: далі курсор порожній
+    this.hover = null;
     this.rebuild();
+    this.refreshHud();
   };
   private wheel = (e: WheelEvent): void => {
     e.preventDefault();
-    this.cam = zoomAt(this.cam, e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
+    const f = Math.exp(-e.deltaY * 0.0015);
+    if (this.following) { // під час стеження зум іде до центру екрана, де лежить об'єкт
+      this.cam.zoom = this.targetZoom = Math.min(CITY_ZOOM_MAX, Math.max(0.08, this.cam.zoom * f));
+    } else this.cam = zoomAt(this.cam, e.clientX, e.clientY, f, 0.08, CITY_ZOOM_MAX);
     this.applyCam();
   };
-
-  private missingText(k: BuildingKind): string {
-    const m = buildCheck(this.w, this.player, k).missing;
-    return Object.entries(m).map(([r, v]) => `${v} ${RES_NAMES[r]?.toLowerCase() ?? r}`).join(', ');
-  }
-
-  private buildPanel(): void {
-    const btns = (Object.keys(BUILD_NAMES) as BuildingKind[]).map((k) => {
-      const cost = Object.entries(COSTS[k] ?? {}).map(([r, v]) => `${v} ${RES_NAMES[r]?.toLowerCase()}`).join(', ');
-      return `<button data-k="${k}">${BUILD_NAMES[k]} <small>(${cost})</small></button>`;
-    }).join('');
-    this.panel.innerHTML = `<h2>Місто</h2><div id="cityRes"></div><div class="btns">${btns}</div>` +
-      `<div id="cityMsg">Обери будівлю й клікни по землі</div><div id="cityFlow"></div><details id="cityPeople"><summary id="cityPeopleSum">Жителі</summary><pre id="cityPeopleList"></pre></details><button id="cityBack">← До карти</button>`;
-    this.panel.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((b) => {
-      b.onclick = () => { this.selected = b.dataset.k as BuildingKind; this.markSel(); };
-    });
-    this.panel.addEventListener('click', (e) => {
-      const t = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pause]');
-      if (!t) return;
-      const b = this.w.byId.get(Number(t.dataset.pause));
-      if (b) applyCommand(this.w, { player: this.player, seq: 0, cmd: { type: 'set_building_paused', building: b.id, paused: !b.paused } });
-      this.updatePanel();
-    });
-    (this.panel.querySelector('#cityBack') as HTMLButtonElement).onclick = () => this.onExit();
-    this.markSel();
-  }
-  private markSel(): void {
-    this.panel.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((b) => b.classList.toggle('sel', b.dataset.k === this.selected));
-  }
 
   /** Прямокутник у тайлах -> ізо-полігон (на висоті z). */
   private quad(tx: number, ty: number, tw: number, th: number, z = 0): number[] {
@@ -226,7 +299,7 @@ export class CityView {
         if (kind === NODE_TREE) {
           const rad = (TREE_TILES * TILE) / 2, top = planeToIso(px, py, 22);
           this.rows[bucket(nt.y)].push({
-            tile,
+            tile, sel: grown ? { t: 'node', cx, cy } : null,
             pick: grown ? [top.x - rad, top.y - rad, top.x + rad, top.y - rad, base.x + rad / 2, base.y + 2, base.x - rad / 2, base.y + 2] : null,
             draw: (gr) => {
               if (!grown) { gr.ellipse(base.x, base.y, 3, 2).fill(0x5d4037); return; }
@@ -238,7 +311,8 @@ export class CityView {
         } else if (kind === NODE_STONE) {
           const rw = (STONE_TILES * TILE) / 2;
           this.rows[bucket(nt.y)].push({
-            tile, pick: null,
+            tile, sel: { t: 'node', cx, cy },
+            pick: [base.x - rw, base.y - rw * 0.9, base.x + rw, base.y - rw * 0.9, base.x + rw, base.y + 2, base.x - rw, base.y + 2],
             draw: (gr) => { gr.ellipse(base.x, base.y - (grown ? 3 : 1), grown ? rw : rw * 0.6, grown ? rw * 0.7 : rw * 0.35).fill(grown ? 0x78787f : 0x55555a); },
           });
         }
@@ -251,7 +325,7 @@ export class CityView {
       const front = [planeToIso(x0, y0 + bh, h), planeToIso(x0 + bw, y0 + bh, h), planeToIso(x0 + bw, y0 + bh, 0), planeToIso(x0, y0 + bh, 0)].flatMap((v) => [v.x, v.y]);
       const pick = [top[0], top[1], top[2], top[3], front[4], front[5], front[6], front[7]]; // силует: верх + фасад
       this.rows[bucket(b.cell.y + b.size.h - 1)].push({
-        tile: b.cell, pick,
+        tile: b.cell, pick, sel: { t: 'building', id: b.id },
         draw: (gr) => {
           gr.poly(front).fill({ color: col }).stroke({ width: 1, color: 0x000000, alpha: 0.6 });
           gr.poly(top).fill({ color: lighten(col) }).stroke({ width: 1, color: 0x000000, alpha: 0.6 });
@@ -279,6 +353,7 @@ export class CityView {
   }
 
   private draw = (): void => {
+    this.simulate();
     this.surroundings.update(this.cam, this.app.screen.width, this.app.screen.height);
     this.cull();
     const n = this.w.state.npcs;
@@ -301,18 +376,77 @@ export class CityView {
       g.roundRect(body.x - hw * 0.8, body.y - hw * 0.2, hw * 1.6, hw * 2.2, hw * 0.6)
         .fill(n.carryAmount[i] ? 0xfff176 : PROF_COLORS[n.profession[i]] ?? 0xffffff);
     }
+    this.followCam();
     this.hoverG.clear();
-    if (this.hover) {
-      const t = this.selected ? this.anchor(this.hover) : this.hover, fp = this.selected ? FOOTPRINT[this.selected] : null;
-      const ok = !fp || checkPlace(this.w, this.sector, this.selected!, t.x, t.y) === null;
+    if (!(this.selected && this.hover)) this.ghost.hide();
+    if (this.selected && this.hover) {
+      const t = this.anchor(this.hover), fp = FOOTPRINT[this.selected];
+      const ok = !fp || checkPlace(this.w, this.sector, this.selected, t.x, t.y) === null;
+      if (fp) {
+        const bk = Math.min(NB - 1, Math.max(0, Math.floor((t.y + fp.h - 1) / BUCKET)));
+        this.ghost.show(this.root, this.rowNpc[bk], bk, t, fp, TILE, BUILD_H[this.selected] ?? 16, BUILD_COLORS[this.selected] ?? 0xffffff, ok);
+      }
       this.hoverG.poly(this.quad(t.x, t.y, fp?.w ?? 1, fp?.h ?? 1))
         .fill({ color: ok ? 0x66ff66 : 0xff5050, alpha: 0.25 }).stroke({ width: 1.5, color: ok ? 0xaaffaa : 0xff8080 });
     }
+    if (this.hoverSel && !(this.sel && JSON.stringify(this.sel) === JSON.stringify(this.hoverSel))) this.frame_(this.hoverSel, 0xffffff, 0.5);
+    if (this.sel) this.frame_(this.sel, 0xffd54f, 1);
     if (++this.frame % 20 === 0) {
       if (this.signature() !== this.lastSig) this.rebuild();
-      this.updatePanel();
+      this.refreshHud();
     }
   };
+
+  /** Камера слідує за виділеним (м'яко): об'єкт у центрі екрана, зум плавно наближається. */
+  /** Гравець змінив швидкість (кнопка/клавіша); у мережевій грі гість не керує — лише хост. */
+  private userSpeed(v: number): void {
+    if (this.net.locked || !isSpeed(v)) return;
+    this.setSpeed(v);
+    this.net.onSpeed?.(v);
+  }
+  /** Застосувати швидкість (також ззовні: хост змінив). */
+  setSpeed(v: number): void {
+    if (!isSpeed(v)) return;
+    if (v > 0) this.resumeSpeed = v;
+    this.speed = v;
+    this.refreshHud();
+  }
+  /** Кадр симуляції: стільки тіків, скільки належить швидкості, у межах бюджету часу кадру. */
+  private simulate(): void {
+    this.pacer.advance(this.app.ticker.deltaMS, this.speed, () => {
+      stepWorld(this.w);
+      this.clock.tick(performance.now());
+      if (this.w.events.some((e) => e.e === 'trail_stage_changed')) this.groundDirty = true;
+    });
+  }
+
+  private followCam(): void {
+    if (!this.sel) return;
+    const pos = this.posOf(this.sel);
+    if (!pos) { this.deselect(); return; }
+    if (!this.following) return;
+    const z = this.cam.zoom + (this.targetZoom - this.cam.zoom) * 0.2;
+    const iso = planeToIso(pos.x * TILE, pos.y * TILE, 4);
+    this.cam = { zoom: z, x: this.app.screen.width / 2 - iso.x * z, y: this.app.screen.height / 2 - iso.y * z };
+    this.applyCam();
+  }
+
+  /** Рамка виділення: кільце навколо жителя, контур footprint для споруди, овал для ресурсу, тайл для дороги. */
+  private frame_(sel: Sel, color: number, alpha: number): void {
+    const pos = this.posOf(sel);
+    if (!pos) return;
+    const g = this.hoverG, st = { width: 2, color, alpha };
+    if (sel.t === 'npc') {
+      const c = planeToIso(pos.x * TILE, pos.y * TILE, 0), hw = (NPC_TILES * TILE) / 2;
+      g.ellipse(c.x, c.y, hw * 1.7, hw * 0.85).stroke(st);
+    } else if (sel.t === 'building') {
+      const b = this.w.byId.get(sel.id)!;
+      g.poly(this.quad(b.cell.x - 0.5, b.cell.y - 0.5, b.size.w + 1, b.size.h + 1)).fill({ color, alpha: 0.12 * alpha }).stroke(st);
+    } else if (sel.t === 'node') {
+      const c = planeToIso(pos.x * TILE, pos.y * TILE, 0), r = (STONE_TILES * TILE) / 2;
+      g.ellipse(c.x, c.y, r, r * 0.5).stroke(st);
+    } else g.poly(this.quad(sel.x, sel.y, 1, 1)).fill({ color, alpha: 0.3 * alpha }).stroke(st);
+  }
 
   /** Дешева сигнатура видимого стану (вузли зрубано/виросло, кількість будівель): без змін — шари не перебудовуємо. */
   private lastSig = '';
@@ -323,77 +457,26 @@ export class CityView {
     return `${grown}:${h}:${rt.buildings.length}`;
   }
 
-  private updatePanel(): void {
-    const p = this.w.state.players.find((x) => x.id === this.player)!;
-    const idle = this.w.state.npcs.count - this.w.npc.workplace.reduce((a, v) => a + (v >= 0 ? 1 : 0), 0);
-    this.panel.querySelector('#cityRes')!.innerHTML =
-      Object.entries(RES_NAMES).map(([k, name]) => `${name}: <b>${p.resources[k as 'wood']}</b>`).join(' · ') +
-      `<br>Жителів: <b>${this.w.state.npcs.count}</b>, вільних: <b>${idle}</b>`;
-    this.updateResidents();
-    this.panel.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((btn) => {
-      const k = btn.dataset.k as BuildingKind, c = buildCheck(this.w, this.player, k);
-      btn.classList.toggle('no', !c.ok);
-      btn.title = c.ok ? (c.free ? 'Перший лісоруб безкоштовний' : '') : `Не вистачає: ${this.missingText(k)}`;
-    });
-    // Рядки «Виробництво» живуть постійно й оновлюються на місці: інакше кнопка зникає між mousedown і click.
-    const host = this.panel.querySelector('#cityFlow')!;
-    const live = this.w.state.buildings.filter((b) => MAX_WORKERS[b.kind]);
-    if (!this.flowTitle) { this.flowTitle = document.createElement('h3'); this.flowTitle.textContent = 'Виробництво'; }
-    if (live.length && !this.flowTitle.parentNode) host.prepend(this.flowTitle);
-    if (!live.length && this.flowTitle.parentNode) this.flowTitle.remove();
-    const ids = new Set(live.map((b) => b.id));
-    for (const [id, r] of this.flowRows) if (!ids.has(id)) { r.row.remove(); this.flowRows.delete(id); }
-    for (const b of live) {
-      let r = this.flowRows.get(b.id);
-      if (!r) {
-        const row = document.createElement('div'), text = document.createElement('span');
-        row.append(text);
-        let btn: HTMLButtonElement | null = null;
-        if (b.kind === 'sawmill') { btn = document.createElement('button'); btn.dataset.pause = String(b.id); row.append(' ', btn); }
-        host.append(row);
-        r = { row, text, btn };
-        this.flowRows.set(b.id, r);
-      }
-      const out = b.kind === 'sawmill' ? 'planks' : b.kind === 'quarry' ? 'stone' : 'wood';
-      const rate = ratePerSec(this.w, b.id, 'produced', out);
-      const starved = this.w.state.flows.last.byBuilding[b.id]?.starved ?? 0;
-      const why = starved > 20 ? ` — простій: ${WHY[this.w.why.get(b.id) ?? ''] ?? '?'}` : '';
-      const txt = `${BUILD_NAMES[b.kind]} #${b.id} — працівників ${b.workers.length}/${MAX_WORKERS[b.kind]}, ефективність ${Math.round((b.workers.length / (MAX_WORKERS[b.kind] ?? 1)) * 100)}%: ${RES_NAMES[out]} ${rate.toFixed(2)}/с${why}${b.roadAttached ? ' 🛣' : ''}`;
-      if (r.text.textContent !== txt) r.text.textContent = txt;
-      r.text.classList.toggle('bad', starved > 20);
-      if (r.btn) { const l = b.paused ? '▶ Пуск' : '⏸ Пауза'; if (r.btn.textContent !== l) r.btn.textContent = l; }
-    }
-  }
-
-  /** Стан кожного жителя: зведення в заголовку, список — у <pre> (текст оновлюється на місці). */
-  private updateResidents(): void {
-    const list = residents(this.w, this.player);
-    const cnt = new Map<string, number>();
-    for (const r of list) cnt.set(r.state, (cnt.get(r.state) ?? 0) + 1);
-    const sum = [...cnt].map(([k, v]) => `${STATE_TXT[k]}: ${v}`).join(', ');
-    const el = this.panel.querySelector('#cityPeopleSum')!;
-    const head = `Жителі (${list.length}): ${sum}`;
-    if (el.textContent !== head) el.textContent = head;
-    const det = this.panel.querySelector('#cityPeople') as HTMLDetailsElement;
-    if (!det.open) return;
-    const txt = list.slice(0, 60).map((r) => {
-      const where = r.workplace >= 0 ? ` #${r.workplace}` : '';
-      const why = r.why && r.state === 'waiting' ? ` (${WHY[r.why] ?? r.why})` : '';
-      return `#${r.id} ${PROF_TXT[r.profession] ?? r.profession}${where}: ${STATE_TXT[r.state]}${why}`;
-    }).join('\n');
-    const pre = this.panel.querySelector('#cityPeopleList')!;
-    if (pre.textContent !== txt) pre.textContent = txt;
+  /** Для автотестів: стан вибору й екранні координати об'єктів. */
+  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
+    const scr = (x: number, y: number, z: number) => { const i = planeToIso(x * TILE, y * TILE, z); return { sx: i.x * this.cam.zoom + this.cam.x, sy: i.y * this.cam.zoom + this.cam.y }; };
+    const n = this.w.state.npcs, npcs: { id: number; sx: number; sy: number }[] = [];
+    for (let i = 0; i < n.capacity; i++) if (n.alive[i] && n.sector[i] === this.sector) npcs.push({ id: i, ...scr(this.npcXY(i).x, this.npcXY(i).y, 3) });
+    const buildings = this.w.state.buildings.map((b) => ({ id: b.id, kind: b.kind, ...scr(b.cell.x + b.size.w / 2, b.cell.y + b.size.h / 2, 6) }));
+    return { build: this.selected, sel: this.sel, following: this.following, ghost: this.ghost.g.visible && !!this.ghost.g.parent, speed: this.speed, tick: this.w.state.tick, zoom: this.cam.zoom, npcs, buildings };
   }
 
   destroy(): void {
-    window.clearInterval(this.timer);
     this.app.ticker.remove(this.draw);
     this.app.canvas.removeEventListener('pointermove', this.move);
     this.app.canvas.removeEventListener('pointerdown', this.down);
     this.app.canvas.removeEventListener('pointerup', this.up);
     this.app.canvas.removeEventListener('wheel', this.wheel);
+    this.app.canvas.removeEventListener('contextmenu', this.noMenu);
+    window.removeEventListener('keydown', this.key);
+    this.app.canvas.style.cursor = '';
     this.app.stage.removeChild(this.root);
     this.root.destroy({ children: true });
-    this.panel.remove();
+    this.hud.destroy();
   }
 }

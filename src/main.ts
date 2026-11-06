@@ -39,6 +39,8 @@ function newWorld(seed: number) {
   ]);
 }
 
+window.setInterval(() => host?.setSpeed(gameSpeed), 2000); // пізні гості й перепідключення дізнаються швидкість
+
 function startHost(hl: import('./net').HostLobby, loaded?: MapState): void {
   const players = hl.players().map((p, i) => mkPlayer(p.id, p.nickname, i));
   state = loaded ?? createInitialState(state.world.seed, DEFAULT_WORLD_RADIUS, minDist, players);
@@ -55,10 +57,14 @@ function startClient(cl: import('./net').ClientLobby, snap: MapState, player: st
   client = new ClientSession(cl, snap as never, player);
   state = client.state;
   client.onChange = () => onSession();
+  client.onSpeed = (v) => { gameSpeed = v; cityRef?.setSpeed(v); };
   client.onResult = (ok, reason) => { lastResult = ok ? 'Стартовий сектор підтверджено!' : REASONS[reason ?? 'invalid'] ?? 'Відмова'; onSession(); if (ok) enterCityNow(); };
   onSession();
 }
 let lastResult = '';
+/** Швидкість гри: керує хост (або соло), клієнти отримують її повідомленням. */
+let gameSpeed = 1;
+let cityRef: { setSpeed(v: number): void } | null = null;
 let enterCityNow: () => void = () => {};
 
 async function startGraphics(): Promise<void> {
@@ -150,7 +156,7 @@ function placeBot(): void {
 let city: CityView | null = null;
 let sim: SimWorld | null = null;
 const cityBtn = $<HTMLButtonElement>('enterCity');
-const exitCity = () => { city?.destroy(); city = null; view.world.visible = true; $('hud').style.display = ''; };
+const exitCity = () => { city?.destroy(); city = null; cityRef = null; view.world.visible = true; $('hud').style.display = ''; };
 enterCityNow = () => {
   const home = myPlayer()?.homeSector;
   if (home === null || home === undefined || city) return;
@@ -161,7 +167,12 @@ enterCityNow = () => {
     startCity(sim, me);
   }
   view.world.visible = false; tip.style.display = 'none'; $('hud').style.display = 'none';
-  city = new CityView(app, sim, me, home, exitCity);
+  city = new CityView(app, sim, me, home, exitCity, {
+    locked: netRole === 'client', speed: gameSpeed,
+    onSpeed: (v) => { gameSpeed = v; host?.setSpeed(v); },
+  });
+  cityRef = city;
+  (window as unknown as { __city?: CityView }).__city = city;
 };
 cityBtn.onclick = () => enterCityNow();
 

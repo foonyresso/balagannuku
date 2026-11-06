@@ -69,8 +69,8 @@ export function hexToIso(h: HexCoord, z = 0): Vec2 {
 }
 
 /** Зум навколо точки екрана (точка під курсором лишається на місці). */
-export function zoomAt(cam: Camera, sx: number, sy: number, factor: number): Camera {
-  const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, cam.zoom * factor));
+export function zoomAt(cam: Camera, sx: number, sy: number, factor: number, min = ZOOM_MIN, max = ZOOM_MAX): Camera {
+  const zoom = Math.min(max, Math.max(min, cam.zoom * factor));
   return {
     zoom,
     x: sx - ((sx - cam.x) / cam.zoom) * zoom,
