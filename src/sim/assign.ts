@@ -1,6 +1,6 @@
 import type { BuildingState } from '../shared';
 import { PROFESSIONS } from '../shared';
-import { JOB_OF, MAX_WORKERS } from './balance';
+import { DEFAULT_WORKERS, JOB_OF, MAX_WORKERS } from './balance';
 import type { SimWorld } from './world';
 
 /** Зняти NPC з роботи (стає вільним). */
@@ -23,8 +23,12 @@ export function assignNpc(w: SimWorld, npc: number, b: BuildingState): void {
   w.state.npcs.profession[npc] = PROFESSIONS.indexOf(JOB_OF[b.kind]!);
 }
 
+/** Скільки місць відкрито зараз: бажана кількість (workerCap) або типова для виду, не більше за MAX_WORKERS. */
+export const slotsOf = (b: BuildingState): number =>
+  Math.min(MAX_WORKERS[b.kind] ?? 0, b.workerCap ?? DEFAULT_WORKERS[b.kind] ?? MAX_WORKERS[b.kind] ?? 0);
+
 export const hasVacancy = (b: BuildingState): boolean =>
-  b.progress >= 1 && !!JOB_OF[b.kind] && b.workers.length < (MAX_WORKERS[b.kind] ?? 0);
+  b.progress >= 1 && !!JOB_OF[b.kind] && b.workers.length < slotsOf(b);
 
 /**
  * Автопризначення: кожен вільний NPC йде на вакантне місце в будівлі свого гравця й сектора;

@@ -2,7 +2,7 @@ import type {
   BuildingKind, BuildingState, CommandEnvelope, CommandRejectReason, CommandResult, ResourceKind,
 } from '../shared';
 import { COSTS, FOOTPRINT, JOB_OF, MAX_WORKERS, PLACE_MARGIN, START_SETTLERS, START_STOCK, STORAGE_CAP } from './balance';
-import { assignNpc, unassignNpc } from './assign';
+import { assignNpc, autoStaffIdle, slotsOf, unassignNpc } from './assign';
 import { spawnNpc } from './npcs';
 import { syncPlayerResources } from './step';
 import { C as CELLS, CENTER_TILE, NODE_NONE, T as TILES, TPC, getSectorRt, markFootprint, nodeTile, rebuildIndex, type SimWorld } from './world';
@@ -143,8 +143,12 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
       const b = w.byId.get(cmd.building);
       if (!b || b.owner !== player) return no('not_owner');
       if (JOB_OF[b.kind] !== cmd.profession) return no('invalid');
-      if (!b.workers.includes(cmd.npc) && b.workers.length >= (MAX_WORKERS[b.kind] ?? 0)) return no('occupied');
       if (w.state.npcs.sector[cmd.npc] !== b.sector) return no('invalid');
+      if (!b.workers.includes(cmd.npc) && b.workers.length >= slotsOf(b)) {
+        // ручне призначення відкриває ще одне місце, якщо воно в межах максимуму будівлі
+        if (b.workers.length >= (MAX_WORKERS[b.kind] ?? 0)) return no('occupied');
+        b.workerCap = b.workers.length + 1;
+      }
       assignNpc(w, cmd.npc, b);
       return { ok: true };
     }
@@ -154,6 +158,17 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
       if (b.owner !== player) return no('not_owner');
       if (b.kind !== 'sawmill') return no('invalid'); // лише переробники
       b.paused = cmd.paused;
+      return { ok: true };
+    }
+    case 'set_worker_count': {
+      const b = w.byId.get(cmd.building);
+      if (!b || !JOB_OF[b.kind] || !Number.isInteger(cmd.count)) return no('invalid');
+      if (b.owner !== player) return no('not_owner');
+      const count = Math.max(0, Math.min(MAX_WORKERS[b.kind] ?? 0, cmd.count));
+      b.workerCap = count;
+      // Зменшення: зайвих звільняємо (не «manual»: вони самі шукають іншу роботу). Автопризначення не чіпає тих, хто лишився.
+      while (b.workers.length > count) unassign(w, b.workers[b.workers.length - 1]);
+      autoStaffIdle(w);
       return { ok: true };
     }
     case 'unassign_worker':
@@ -172,7 +187,7 @@ export function staffBuilding(w: SimWorld, player: string, buildingId: number, m
   if (!b || !job) return 0;
   const n = w.state.npcs;
   let done = 0;
-  for (let i = 0; i < n.capacity && b.workers.length < (MAX_WORKERS[b.kind] ?? 0) && done < max; i++) {
+  for (let i = 0; i < n.capacity && b.workers.length < slotsOf(b) && done < max; i++) {
     if (!n.alive[i] || n.sector[i] !== b.sector || w.npc.workplace[i] >= 0) continue;
     if (applyCommand(w, { player, seq: 0, cmd: { type: 'assign_worker', npc: i, profession: job, building: b.id } }).ok) done++;
   }

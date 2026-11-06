@@ -22,7 +22,7 @@ export const POP_PER_HOUSE = 4;
 export const START_SETTLERS = 5;
 export const START_STOCK: Partial<Record<ResourceKind, number>> = { wood: 40, stone: 10, planks: 10 };
 
-export const STORAGE_CAP: Partial<Record<BuildingKind, number>> = { townhall: 200, warehouse: 400 };
+export const STORAGE_CAP: Partial<Record<BuildingKind, number>> = { townhall: 1e9, warehouse: 400 } // ратуша (головний склад) безкінечна; підсклад має буфер, який носії розвантажують;
 export const COSTS: Partial<Record<BuildingKind, Partial<Record<ResourceKind, number>>>> = {
   warehouse: { wood: 10 },
   lumberjack: { wood: 5 },
@@ -31,9 +31,13 @@ export const COSTS: Partial<Record<BuildingKind, Partial<Record<ResourceKind, nu
   house: { planks: 5 },
 };
 /** Слоти працівників на будівлю. Продуктивність = частка зайнятих слотів (кожен працівник працює сам), окремої формули немає. */
-export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 2, quarry: 4, sawmill: 2 };
+export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 2, quarry: 4, sawmill: 2, warehouse: 4 };
+/** Типова кількість працівників: решта будівель заповнюється повністю, підсклад — лише за командою гравця. */
+export const DEFAULT_WORKERS: Partial<Record<BuildingKind, number>> = { warehouse: 0 };
+/** Ноша носія підскладу за рейс (більша за звичайну). */
+export const CARRIER_CAP = 12;
 export const JOB_OF: Partial<Record<BuildingKind, Profession>> = {
-  lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer',
+  lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer', warehouse: 'carrier',
 };
 
 /** Резерв дерева на складах: переробка (лісопильня) не бере й не приймає дерево, поки на складах менше. Будівництво важливіше. */

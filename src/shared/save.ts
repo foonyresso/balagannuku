@@ -1,7 +1,7 @@
 import type { SerializedGameState } from './state';
 
 /** Поточна версія формату сейва. Підвищуй при КОЖНІЙ зміні форми SerializedGameState. */
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const SAVE_MAGIC = 'balagannuku-save';
 export const SAVE_EXTENSION = '.save';
 
@@ -54,6 +54,8 @@ export const MIGRATIONS: Record<number, SaveMigration> = {
     }
     return { ...f, version: 4, state: { ...f.state, sectors: f.state.sectors.map((s) => ({ ...s, trails: null, nodes: null })) } };
   },
+  // v4 -> v5: ім'я/стати/перки NPC (масиви з'являються при завантаженні зі значеннями за замовчуванням) і workerCap будівель (необов'язкове).
+  4: (old) => ({ ...(old as object), version: 5 }),
 };
 
 export function migrateSave(raw: { version: number }): SaveFile {
