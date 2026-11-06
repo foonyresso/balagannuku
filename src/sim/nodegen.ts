@@ -2,7 +2,14 @@ import { fbm } from './noise';
 import { hash2 } from './rng';
 
 /** Налаштування генерації вузлів ресурсів (дерева, каміння) у секторі. Усе в клітинках навігації. */
-export const NODEGEN = {
+export interface NodegenConfig {
+  clearRadius: number; fadeWidth: number; treeScale: number; stoneScale: number;
+  treeThreshold: number; stoneThreshold: number; treeDensity: number; stoneDensity: number;
+  treeRichGain: number; stoneRichGain: number;
+  richRadius: number; farRadius: number; farFactor: number; meadowScale: number; meadowCut: number;
+}
+
+export const NODEGEN: NodegenConfig = {
   /** Повністю вільний майданчик навколо ратуші (радіус). Площа ≈ π·r² (24 → ~1800 клітинок із 4096). */
   clearRadius: 24,
   /** Ширина смуги, де щільність росте від 0 до звичайної. */
@@ -16,7 +23,31 @@ export const NODEGEN = {
   /** Щільність усередині групи (частка клітинок із вузлом). */
   treeDensity: 0.5,
   stoneDensity: 0.45,
-} as const;
+  /**
+   * До цього радіуса від ратуші групи «звичайні» (робітники мають де брати ресурс: радіус роботи 64 клітинки),
+   * далі групи рідшають до farFactor — великі відкриті поляни й рідкі далекі гаї.
+   */
+  richRadius: 70,
+  farRadius: 130,
+  farFactor: 0.25,
+  /** Великі поляни: низькочастотна маска, де груп немає зовсім. */
+  meadowScale: 0.018,
+  meadowCut: 0.52,
+  /** Наскільки богатство сектора знижує поріг (щедріші сектори мають більше груп). */
+  treeRichGain: 0.25,
+  stoneRichGain: 0.2,
+};
+const DEFAULTS: NodegenConfig = { ...NODEGEN };
+
+/** Налаштування на льоту (тести економіки, режими балансу). */
+export function configureNodegen(p: Partial<NodegenConfig>): void { Object.assign(NODEGEN, p); }
+export function resetNodegen(): void { Object.assign(NODEGEN, DEFAULTS); }
+
+/** Компактний «старий» світ: тісна ратуша й щільний ліс поруч — для детермінованих тестів економіки. */
+export const COMPACT_NODEGEN: Partial<NodegenConfig> = {
+  clearRadius: 5, fadeWidth: 0.001, treeScale: 0.1, stoneScale: 0.14, treeThreshold: 0.62, stoneThreshold: 0.7,
+  treeDensity: 0.55, stoneDensity: 0.5, treeRichGain: 0.3, stoneRichGain: 0.3, richRadius: 1e9, meadowCut: -1,
+};
 
 export type NodeKindId = 0 | 1 | 2; // 0 нічого, 1 дерево, 2 камінь
 
@@ -31,10 +62,14 @@ export function genNode(
   const d = Math.hypot(x - center, y - center);
   if (d < c.clearRadius) return 0;
   // 0..1 у смузі розмиття: різні для дерев і каміння випадкові пороги, щоб край не був рівним колом
-  const fade = Math.min(1, (d - c.clearRadius) / c.fadeWidth);
+  const edge = Math.min(1, (d - c.clearRadius) / c.fadeWidth);
+  const far = d <= c.richRadius ? 1 : 1 - (1 - c.farFactor) * Math.min(1, (d - c.richRadius) / (c.farRadius - c.richRadius));
+  const fade = edge * far;
   const ox = sectorId * 13.7, oy = seed % 97;
   const h = hash2(x, y, seed ^ (sectorId * 7919));
-  if (fbm(x * c.treeScale + ox, y * c.treeScale + oy, 101) > c.treeThreshold - 0.25 * wood && h < c.treeDensity * fade) return 1;
-  if (fbm(x * c.stoneScale + ox, y * c.stoneScale + oy, 202) > c.stoneThreshold - 0.2 * stone && h > 1 - c.stoneDensity * fade) return 2;
+  // поляни: за межею «багатої» зони великі ділянки без жодних вузлів
+  if (d > c.richRadius && fbm(x * c.meadowScale + ox, y * c.meadowScale + oy, 303) < c.meadowCut) return 0;
+  if (fbm(x * c.treeScale + ox, y * c.treeScale + oy, 101) > c.treeThreshold - c.treeRichGain * wood && h < c.treeDensity * fade) return 1;
+  if (fbm(x * c.stoneScale + ox, y * c.stoneScale + oy, 202) > c.stoneThreshold - c.stoneRichGain * stone && h > 1 - c.stoneDensity * fade) return 2;
   return 0;
 }

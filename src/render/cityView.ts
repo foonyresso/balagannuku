@@ -5,14 +5,14 @@ import {
   applyCommand, buildCheck, checkPlace, residents, getSectorRt, nodeTile, ratePerSec, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
 } from '../sim';
 import { COSTS, FOOTPRINT, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
-import { planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
+import { ISO_Y, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
 
 /** Розмір ТАЙЛА в одиницях площини (та сама проєкція, що й у карти): сектор = SECTOR_SIZE тайлів ≈ 1024 одиниці. */
 const TILE = 4;
 /** Висота будівель (одиниці площини); ширина/глибина — з footprint у тайлах. */
 const BUILD_H: Record<string, number> = { townhall: 30, warehouse: 18, lumberjack: 16, quarry: 14, sawmill: 22, house: 18 };
-const BUCKET = 2; // тайлів на шар глибини
-const NB = SECTOR_SIZE / BUCKET;
+const NB = 256; // шарів глибини на сектор (стала кількість Graphics незалежно від розміру сектора)
+const BUCKET = SECTOR_SIZE / NB; // тайлів на шар глибини
 
 const STAGE_COLORS = [0, 0x5a4a30, 0x8a7448, 0xb8b0a0];
 const BUILD_COLORS: Record<string, number> = {
@@ -195,6 +195,7 @@ export class CityView {
   private rebuild(): void {
     const rt = getSectorRt(this.w, this.sector), seed = this.w.state.world.seed;
     if (this.groundDirty) this.rebuildGround();
+    this.lastSig = this.signature();
     this.rows = Array.from({ length: NB }, () => []);
     const bucket = (ty: number) => Math.min(NB - 1, Math.max(0, Math.floor(ty / BUCKET)));
     for (let cy = 0; cy < SECTOR_CELLS; cy++) {
@@ -249,7 +250,19 @@ export class CityView {
     }
   }
 
+  /** Відсікання: шари глибини (смуги по y), що не потрапляють у видиму область екрана, не малюються. */
+  private cull(): void {
+    const top = screenToPlane(0, 0, this.cam).y, bot = screenToPlane(0, this.app.screen.height, this.cam).y;
+    const margin = 70 / ISO_Y; // висота дерев і будівель зсуває малюнок угору
+    const y0 = top - margin, y1 = bot + margin, rowH = BUCKET * TILE;
+    for (let r = 0; r < NB; r++) {
+      const vis = (r + 1) * rowH >= y0 && r * rowH <= y1;
+      this.rowObj[r].visible = vis; this.rowNpc[r].visible = vis;
+    }
+  }
+
   private draw = (): void => {
+    this.cull();
     const n = this.w.state.npcs;
     for (const g of this.rowNpc) g.clear();
     const hw = (NPC_TILES * TILE) / 2; // NPC ≈ 2×2 тайли (візуально), без жорсткої колізії
@@ -274,8 +287,20 @@ export class CityView {
       this.hoverG.poly(this.quad(t.x, t.y, fp?.w ?? 1, fp?.h ?? 1))
         .fill({ color: ok ? 0x66ff66 : 0xff5050, alpha: 0.25 }).stroke({ width: 1.5, color: ok ? 0xaaffaa : 0xff8080 });
     }
-    if (++this.frame % 20 === 0) { this.rebuild(); this.updatePanel(); }
+    if (++this.frame % 20 === 0) {
+      if (this.signature() !== this.lastSig) this.rebuild();
+      this.updatePanel();
+    }
   };
+
+  /** Дешева сигнатура видимого стану (вузли зрубано/виросло, кількість будівель): без змін — шари не перебудовуємо. */
+  private lastSig = '';
+  private signature(): string {
+    const rt = getSectorRt(this.w, this.sector);
+    let h = 0, grown = 0;
+    for (let i = 0; i < rt.kind.length; i++) if (rt.kind[i] && rt.amount[i] > 0) { grown++; h = (h * 31 + i) | 0; }
+    return `${grown}:${h}:${rt.buildings.length}`;
+  }
 
   private updatePanel(): void {
     const p = this.w.state.players.find((x) => x.id === this.player)!;

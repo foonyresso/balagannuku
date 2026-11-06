@@ -15,8 +15,13 @@ export const mkPlayer = (id: string, nickname: string, index: number): PlayerSta
 });
 
 /** Хост -> мережа: знімок світу (NPC поки порожні). */
+/** Знімок компактний: великі масиви сектора (стежки, вузли) гість не отримує — вузли виводяться з seed. */
 const toSnapshot = (s: MapState): SerializedGameState =>
-  ({ ...s, npcs: { capacity: 0, count: 0 } }) as unknown as SerializedGameState;
+  ({
+    ...s,
+    sectors: s.sectors.map((x) => ({ ...x, trails: null, nodes: null })),
+    npcs: { capacity: 0, count: 0 },
+  }) as unknown as SerializedGameState;
 
 /** Хост: тримає авторитетний стан, приймає команди клієнтів, розсилає події. */
 export class HostSession {

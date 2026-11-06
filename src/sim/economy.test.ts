@@ -7,6 +7,7 @@ import { ROAD_SPEED_MULT } from '../shared';
 import { MIGRATIONS } from '../shared';
 import { FOOTPRINT } from './balance';
 import { claimStart } from './worldgen';
+import { COMPACT_NODEGEN, configureNodegen } from './nodegen';
 
 const mk = (id: string): PlayerState => ({
   id, nickname: id, token: id, color: 1, homeSector: null, ownedSectors: [],
@@ -14,11 +15,14 @@ const mk = (id: string): PlayerState => ({
 });
 
 export function setup(seed = 7): SimWorld {
+  configureNodegen(COMPACT_NODEGEN); // тести економіки йдуть у компактному світі (ресурси поруч з ратушею)
   const w = createWorld(seed, [mk('p')]);
   expect(claimStart(w.state, 'p', 0).ok).toBe(true);
   startCity(w, 'p');
   return w;
 }
+/** Координати тестів задані відносно центру колишнього 64-клітинкового сектора. */
+const OFF = SECTOR_CELLS / 2 - 32;
 type Kind = 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'house';
 /** Найближчий до (x0,y0) тайл, де кind можна поставити (за checkPlace). */
 const free = (w: SimWorld, kind: Kind, x0: number, y0: number) => {
@@ -31,17 +35,18 @@ const free = (w: SimWorld, kind: Kind, x0: number, y0: number) => {
 };
 /** Координати (cx,cy) — у клітинках навігації; будівля ставиться в найближче вільне місце. */
 const place = (w: SimWorld, kind: Kind, cx: number, cy: number) => {
-  const { x, y } = free(w, kind, cx * 4, cy * 4);
+  const { x, y } = free(w, kind, (cx + OFF) * 4, (cy + OFF) * 4);
   const r = applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'place_building', kind, sector: 0, cell: { x, y } } });
   expect(r.ok, String(r.reason)).toBe(true);
   return w.state.buildings[w.state.buildings.length - 1];
 };
+const maxOf = (a: ArrayLike<number>): number => { let m = 0; for (let i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return m; };
 const run = (w: SimWorld, t: number) => { for (let i = 0; i < t; i++) stepWorld(w); };
 const hall = (w: SimWorld) => w.state.buildings[0];
 
 describe('економіка', () => {
   it('ланцюжок: лісоруб -> склад -> лісопильня -> дошки', () => {
-    const w = setup();
+    const w = setup(1);
     const lj = place(w, 'lumberjack', 36, 30);
     const sm = place(w, 'sawmill', 28, 30);
     staffBuilding(w, 'p', lj.id);
@@ -159,7 +164,7 @@ describe('економіка', () => {
     const w = setup();
     const rt = getSectorRt(w, 0);
     rt.kind.fill(0); rt.amount.fill(0); rt.forest.fill(0);
-    const tree = 5 * SECTOR_CELLS + 60; // далеко від центру (≈ 40 клітинок від лісоруба)
+    const tree = (5 + OFF) * SECTOR_CELLS + 60 + OFF; // далеко від центру (≈ 40 клітинок від лісоруба)
     rt.kind[tree] = 1; rt.amount[tree] = 3; rt.forest[tree] = 1;
     const lj = place(w, 'lumberjack', 20, 36);
     expect(staffBuilding(w, 'p', lj.id)).toBeGreaterThan(0);
@@ -184,7 +189,7 @@ describe('економіка', () => {
       for (let x = 0; x < S; x++) g.cellStage[roadRow * S + x] = TrailStage.Paved;
       return g;
     };
-    const rowsOf = (p: Int16Array) => new Set(Array.from(p, (c) => Math.floor(c / S)));
+    const rowsOf = (p: Int32Array) => new Set(Array.from(p, (c) => Math.floor(c / S)));
     setRoadPull(1);
     expect(rowsOf(findPath(grid(12), 2, 10, 60, 10)!).has(12)).toBe(true); // гак 2 клітинки — іде по дорозі
     expect(rowsOf(findPath(grid(30), 2, 10, 60, 10)!).has(30)).toBe(false); // гак 20 — напряму
@@ -202,7 +207,7 @@ describe('економіка', () => {
     for (let k = 0; k < 3; k++) staffBuilding(w, 'p', place(w, 'lumberjack', 30 + k * 3, 36).id, 2);
     run(w, 3000);
     const rt = w.sectors.get(0)!;
-    expect(Math.max(...rt.stage)).toBeLessThanOrEqual(TrailStage.Paved);
+    expect(rt.stage.reduce((m, v) => Math.max(m, v), 0)).toBeLessThanOrEqual(TrailStage.Paved);
     const roadCells = rt.stage.reduce((a, s) => a + (s >= TrailStage.Road ? 1 : 0), 0);
     expect(roadCells).toBeLessThan(SECTOR_SIZE * SECTOR_SIZE * 0.1); // не весь сектор
   });
@@ -428,18 +433,18 @@ describe('економіка', () => {
   });
 
   it('стежки: трафік росте, стадія підіймається, потім згасає', () => {
-    const w = setup();
+    const w = setup(2);
     const lj = place(w, 'lumberjack', 36, 30);
     staffBuilding(w, 'p', lj.id);
     run(w, 1500);
     const rt = w.sectors.get(0)!;
-    const max = Math.max(...rt.trails.traffic);
+    const max = maxOf(rt.trails.traffic);
     expect(max).toBeGreaterThanOrEqual(DEFAULT_TRAIL_THRESHOLDS.trampled);
     expect(rt.stage.some((s) => s >= TrailStage.Trampled)).toBe(true);
     for (const id of [...lj.workers]) applyCommand(w, { player: 'p', seq: 5, cmd: { type: 'unassign_worker', npc: id } });
     run(w, 100);
     decayTrails(w, 3000); // довго ніхто не ходить
-    expect(Math.max(...rt.trails.traffic)).toBeLessThan(max);
+    expect(maxOf(rt.trails.traffic)).toBeLessThan(max);
   });
 
   it('серіалізація: round-trip зберігає стан і далі працює', () => {
@@ -472,6 +477,6 @@ describe('економіка', () => {
     const before = w.state.npcs.count;
     run(w, 700);
     expect(w.state.npcs.count).toBeGreaterThan(before);
-    expect(SECTOR_SIZE).toBe(256);
+    expect(SECTOR_SIZE).toBe(SECTOR_CELLS * 4);
   });
 });
