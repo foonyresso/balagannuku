@@ -1,10 +1,10 @@
 import { Application } from 'pixi.js';
-import type { PlayerState } from './shared';
-import { MIN_START_DISTANCE, RESOURCE_KINDS } from './shared';
+import { MIN_START_DISTANCE } from './shared';
 import { MapView, RESOURCE_COLORS, RESOURCE_NAMES } from './render/mapView';
 import { canClaimStart, claimStart, createInitialState, DEFAULT_WORLD_RADIUS, SECTOR_RESOURCES } from './sim/worldgen';
 import { mulberry32 } from './sim/rng';
 import { mountLobby } from './ui';
+import { ClientSession, HostSession, mkPlayer, type MapState } from './net';
 
 declare global { interface Window { __appStarted?: boolean; __showError?: (where: string, e: unknown) => void } }
 window.__appStarted = true;
@@ -12,28 +12,51 @@ const showError = (where: string, e: unknown) => window.__showError?.(where, e);
 
 // 1) Лобі — першим і окремо: працює навіть якщо графіка чи карта зламані.
 try {
-  const lobby = mountLobby({ onHostStart: () => lobby.destroy(), onJoined: () => lobby.destroy() });
+  const lobby = mountLobby({
+    onHostStart: (hl, loaded) => { lobby.destroy(); startHost(hl, loaded as MapState | undefined); },
+    onJoined: (cl, res) => { lobby.destroy(); startClient(cl, res.snapshot as unknown as MapState, res.player); },
+  });
 } catch (e) { showError('лобі', e); }
 
-const ME = 'me';
+let me = 'p1';
+let netRole: 'solo' | 'host' | 'client' = 'solo';
+let host: HostSession | null = null;
+let client: ClientSession | null = null;
+let onSession: () => void = () => {};
 const REASONS: Record<string, string> = {
   occupied: 'Сектор зайнятий', too_close_to_start: 'Надто близько до чужого старту', invalid: 'Старт уже обрано',
 };
 
-const mkPlayer = (id: string, nickname: string, color: number): PlayerState => ({
-  id, nickname, token: id, color, homeSector: null, ownedSectors: [],
-  resources: Object.fromEntries(RESOURCE_KINDS.map((k) => [k, 0])) as PlayerState['resources'],
-});
-
 let minDist = MIN_START_DISTANCE;
-let state!: ReturnType<typeof newWorld>;
+let state!: MapState;
 try { state = newWorld(Math.floor(Math.random() * 1e9)); } catch (e) { showError('генерація світу', e); }
 
 function newWorld(seed: number) {
   return createInitialState(seed, DEFAULT_WORLD_RADIUS, minDist, [
-    mkPlayer(ME, 'Ти', 0x4fc3f7), mkPlayer('bot1', 'Суперник', 0xff7043),
+    mkPlayer('p1', 'Ти', 0), mkPlayer('bot1', 'Суперник', 1),
   ]);
 }
+
+function startHost(hl: import('./net').HostLobby, loaded?: MapState): void {
+  const players = hl.players().map((p, i) => mkPlayer(p.id, p.nickname, i));
+  state = loaded ?? createInitialState(state.world.seed, DEFAULT_WORLD_RADIUS, minDist, players);
+  me = hl.hostPlayer;
+  netRole = 'host';
+  host = new HostSession(hl, state);
+  host.onChange = () => onSession();
+  onSession();
+}
+
+function startClient(cl: import('./net').ClientLobby, snap: MapState, player: string): void {
+  netRole = 'client';
+  me = player;
+  client = new ClientSession(cl, snap as never, player);
+  state = client.state;
+  client.onChange = () => onSession();
+  client.onResult = (ok, reason) => { lastResult = ok ? 'Стартовий сектор обрано!' : REASONS[reason ?? 'invalid'] ?? 'Відмова'; onSession(); }
+  onSession();
+}
+let lastResult = '';
 
 async function startGraphics(): Promise<void> {
 
@@ -52,7 +75,8 @@ const view = new MapView(app, () => state);
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const tip = $('tip'), status = $('status');
 
-view.blocked = (id) => !canClaimStart(state, ME, id).ok;
+view.blocked = (id) => !canClaimStart(state, me, id).ok;
+const myPlayer = () => state.players.find((p) => p.id === me);
 
 view.onHover = (id, x, y) => {
   if (id === null) { tip.style.display = 'none'; return; }
@@ -63,8 +87,8 @@ view.onHover = (id, x, y) => {
       `<span>${RESOURCE_NAMES[kind]}</span><b>${Math.round(v * 100)}%</b></div>`;
   }).join('');
   const owner = s.owner ? state.players.find((p) => p.id === s.owner)!.nickname : 'вільний';
-  const claim = canClaimStart(state, ME, id);
-  const hint = state.players[0].homeSector === null
+  const claim = canClaimStart(state, me, id);
+  const hint = myPlayer()?.homeSector === null
     ? (claim.ok ? '<em>Клік — обрати стартом</em>' : `<em class="bad">${REASONS[claim.reason]}</em>`) : '';
   tip.innerHTML = `<h3>Сектор ${s.hex.q},${s.hex.r}</h3><div>${owner}</div>${rows}${hint}`;
   tip.style.display = 'block';
@@ -73,7 +97,14 @@ view.onHover = (id, x, y) => {
 };
 
 view.onClick = (id) => {
-  const r = claimStart(state, ME, id);
+  if (netRole === 'client') {
+    const c = canClaimStart(state, me, id);
+    if (!c.ok) { status.textContent = REASONS[c.reason]; return; }
+    status.textContent = 'Надсилаю хосту…';
+    client!.claim(id);
+    return;
+  }
+  const r = host ? host.claim(me, id) : claimStart(state, me, id);
   status.textContent = r.ok ? 'Стартовий сектор обрано!' : REASONS[r.reason];
   view.redraw();
 };
@@ -85,7 +116,19 @@ function placeBot(): void {
   if (id !== undefined) claimStart(state, 'bot1', id);
 }
 
+onSession = () => {
+  const mine = myPlayer();
+  if (lastResult) { status.textContent = lastResult; lastResult = ''; }
+  else if (mine?.homeSector === null) status.textContent = 'Обери стартовий сектор';
+  else if (mine) status.textContent = 'Стартовий сектор обрано!';
+  ($('newWorld') as HTMLButtonElement).disabled = netRole !== 'solo';
+  ($('dist') as HTMLInputElement).disabled = netRole !== 'solo';
+  view.blocked = (id) => !canClaimStart(state, me, id).ok;
+  view.redraw();
+};
+
 function reset(): void {
+  if (netRole !== 'solo') return;
   state = newWorld(Math.floor(Math.random() * 1e9));
   status.textContent = 'Обери стартовий сектор';
   placeBot();
@@ -114,6 +157,7 @@ ui.oninput = applyScale;
 applyScale();
 
 reset();
+onSession();
 app.renderer.on('resize', () => view.redraw());
 } catch (e) { showError('карта', e); }
 }
