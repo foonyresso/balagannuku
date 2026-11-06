@@ -44,9 +44,9 @@ describe('економіка', () => {
     const w = setup();
     const lj = place(w, 'lumberjack', 36, 30);
     const sm = place(w, 'sawmill', 28, 30);
-    staffBuilding(w, 'p', lj.id, 3);
-    staffBuilding(w, 'p', sm.id, 2);
-    expect(lj.workers.length + sm.workers.length).toBe(5);
+    staffBuilding(w, 'p', lj.id);
+    staffBuilding(w, 'p', sm.id);
+    expect(lj.workers.length + sm.workers.length).toBe(4); // слоти: лісоруб 2 + лісопилня 2
     const wood0 = hall(w).stock.wood ?? 0, planks0 = hall(w).stock.planks ?? 0;
     run(w, 800);
     const f = w.state.flows.total;
@@ -259,27 +259,49 @@ describe('економіка', () => {
     expect(() => MIGRATIONS[2]({ ...base, state: { ...base.state, buildings: [{}] } })).toThrow(/нову гру/);
   });
 
-  it('автопризначення: новий житель із дому йде на вакантне місце в старій будівлі', () => {
-    const w = setup();
-    // 5 стартових поселенців заповнюють лісоруба; вільних немає
+  it('слоти й автопризначення: понад ліміт не призначається, вакансії заповнюються з вільних', () => {
+    const w = setup(); // 5 вільних поселенців
     const lj = place(w, 'lumberjack', 40, 30);
-    expect(staffBuilding(w, 'p', lj.id)).toBe(5);
-    lj.workers.slice(0, 2).forEach((id) => applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'assign_worker', npc: id, profession: 'lumberjack', building: null } }));
-    // зняті вручну — автопризначення їх не чіпає
+    expect(staffBuilding(w, 'p', lj.id)).toBe(2); // слотів 2
+    expect(applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'assign_worker', npc: residents(w, 'p').find((r) => r.state === 'free')!.id, profession: 'lumberjack', building: lj.id } }).reason).toBe('occupied');
     run(w, 30);
-    expect(lj.workers.length).toBe(3);
-    // збудували дім: з'являється житель і сам іде до лісоруба (там є вакансії)
-    place(w, 'house', 20, 20);
-    const before = w.state.npcs.count;
-    run(w, 500);
-    expect(w.state.npcs.count).toBeGreaterThan(before);
-    expect(lj.workers.length).toBe(3 + (w.state.npcs.count - before));
-    // потім лісопильня: наступний житель іде до неї (там менше працівників)
+    expect(lj.workers.length).toBe(2);
+    expect(residents(w, 'p').filter((r) => r.state === 'free').length).toBe(3); // решта лишились вільними
+    // зняли одного вручну: вакансію займає ІНШИЙ вільний, знятий вручну не повертається
+    const gone = lj.workers[0];
+    applyCommand(w, { player: 'p', seq: 2, cmd: { type: 'unassign_worker', npc: gone } });
+    run(w, 30);
+    expect(lj.workers.length).toBe(2);
+    expect(lj.workers).not.toContain(gone);
+    // лісопилня (2 слоти): два вільних іду до неї, а не в старий лісоруб (він повний)
     const sm = place(w, 'sawmill', 24, 24);
-    run(w, 700);
-    expect(w.state.npcs.count).toBeGreaterThan(before + 1);
-    expect(sm.workers.length).toBeGreaterThanOrEqual(1);
-    expect(lj.workers.length + sm.workers.length).toBe(w.state.npcs.count - 2);
+    run(w, 30);
+    expect(sm.workers.length).toBe(2);
+    expect(lj.workers.length).toBe(2);
+    // дім: з'являються нові жителі, вільних вакансій немає — лишаються вільними, доки не збудують кар'єр
+    place(w, 'house', 20, 20);
+    run(w, 500);
+    const freeNow = residents(w, 'p').filter((r) => r.state === 'free' && r.id !== gone).length;
+    expect(freeNow).toBeGreaterThanOrEqual(1);
+    const q = place(w, 'quarry', 30, 40);
+    run(w, 30);
+    expect(q.workers.length).toBeGreaterThanOrEqual(1);
+    expect(q.workers.length).toBeLessThanOrEqual(4);
+  });
+
+  it('продуктивність масштабується з кількістю працівників (1 з 2 слотів ≈ 50%)', () => {
+    const produced = (workers: number) => {
+      const w = setup(21);
+      w.npc.manual.fill(1);
+      const lj = place(w, 'lumberjack', 40, 30);
+      staffBuilding(w, 'p', lj.id, workers);
+      run(w, 2500);
+      return w.state.flows.total.byBuilding[lj.id]?.produced.wood ?? 0;
+    };
+    const one = produced(1), two = produced(2);
+    expect(one).toBeGreaterThan(0);
+    expect(two / one).toBeGreaterThan(1.5);
+    expect(two / one).toBeLessThan(2.6);
   });
 
   it('жителі видимі: працівники розходяться по різних деревах, вільні не стовпляться; лічильник = список станів', () => {
@@ -295,10 +317,10 @@ describe('економіка', () => {
       stepWorld(w);
       if (t > 100 && t % 10 === 0) { spread += tiles(lj.workers); samples++; }
     }
-    expect(spread / samples).toBeGreaterThanOrEqual(3.5); // з 5 робітників видно хоча б ~4 різні місця
+    expect(spread / samples).toBeGreaterThanOrEqual(1.7); // обидва працівники (слоти 2) на різних місцях
     const list = residents(w, 'p');
     expect(list.length).toBe(w.state.npcs.count);
-    expect(list.every((r) => r.state !== 'free')).toBe(true);
+    expect(list.filter((r) => r.state !== 'free').length).toBe(2); // слоти лісоруба = 2, решта вільні
     expect(list.some((r) => r.state === 'working' || r.state === 'to_node' || r.state === 'carrying')).toBe(true);
   });
 
@@ -378,6 +400,21 @@ describe('економіка', () => {
     expect(weakDied).toBeGreaterThan(500); // і слабкий слід живе довго (сотні інтервалів = години гри), а не одразу
   });
 
+  it('продуктивність масштабується з кількістю працівників (1 з 2 слотів ≈ 50%)', () => {
+    const produced = (workers: number) => {
+      const w = setup(21);
+      w.npc.manual.fill(1);
+      const lj = place(w, 'lumberjack', 40, 30);
+      staffBuilding(w, 'p', lj.id, workers);
+      run(w, 2500);
+      return w.state.flows.total.byBuilding[lj.id]?.produced.wood ?? 0;
+    };
+    const one = produced(1), two = produced(2);
+    expect(one).toBeGreaterThan(0);
+    expect(two / one).toBeGreaterThan(1.5);
+    expect(two / one).toBeLessThan(2.6);
+  });
+
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {
     const w = setup();
     place(w, 'warehouse', 20, 20);
@@ -397,10 +434,11 @@ describe('економіка', () => {
     run(w, 1500);
     const rt = w.sectors.get(0)!;
     const max = Math.max(...rt.trails.traffic);
-    expect(max).toBeGreaterThan(20);
+    expect(max).toBeGreaterThanOrEqual(DEFAULT_TRAIL_THRESHOLDS.trampled);
     expect(rt.stage.some((s) => s >= TrailStage.Trampled)).toBe(true);
     for (const id of [...lj.workers]) applyCommand(w, { player: 'p', seq: 5, cmd: { type: 'unassign_worker', npc: id } });
-    run(w, 2000);
+    run(w, 100);
+    decayTrails(w, 3000); // довго ніхто не ходить
     expect(Math.max(...rt.trails.traffic)).toBeLessThan(max);
   });
 
