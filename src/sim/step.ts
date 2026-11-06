@@ -4,7 +4,7 @@ import {
   TRAIL_DECAY_INTERVAL, TRAIL_MAX, TRAIL_STEP_ADD, TrailStage, stageFromTraffic,
 } from '../shared';
 import {
-  ATTACHED_WORK_MULT, CARRY_CAP, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, WOOD_RESERVE, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
+  ATTACHED_WORK_MULT, CARRY_CAP, PROCESS_TICKS, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, WOOD_RESERVE, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
   ROAD_CHECK_INTERVAL, STONE_AMOUNT, STORAGE_CAP, TREE_AMOUNT, TREE_REGROW_INTERVAL, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
 } from './balance';
 import { flowConsume, flowEdge, flowProduce, flowStarve, rollFlowWindow } from './flow';
@@ -18,8 +18,8 @@ import { hash2 } from './rng';
 import { spawnNpc } from './npcs';
 
 // Фази NPC
-export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7 } as const;
-const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT } = PHASE;
+export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7, WALK_HOME: 8, WORK_HOME: 9 } as const;
+const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT, WALK_HOME, WORK_HOME } = PHASE;
 const T = (n: (typeof TASKS)[number]) => TASKS.indexOf(n);
 const WOOD = RESOURCE_KINDS.indexOf('wood'), STONE = RESOURCE_KINDS.indexOf('stone'), PLANKS = RESOURCE_KINDS.indexOf('planks');
 const SAWYER = PROFESSIONS.indexOf('sawyer'), MINER = PROFESSIONS.indexOf('miner');
@@ -213,7 +213,13 @@ function planDeposit(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): vo
 function plan(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   const n = w.state.npcs, npc = w.npc;
   if (n.profession[i] === SAWYER) return planSawyer(w, i, rt, b);
-  if (n.carryAmount[i] > 0) return planDeposit(w, i, rt, b);
+  if (n.carryAmount[i] > 0 && npc.stage[i] === 1) return planDeposit(w, i, rt, b); // оброблене -> споживач/склад
+  if (n.carryAmount[i] >= CARRY_CAP) { // набрали рейс: спершу до своєї хатинки на обробку
+    const sp = spotNear(rt, b, i);
+    if (!setPath(w, i, rt, sp.x, sp.y)) return wait(w, i, b, 'no_path');
+    npc.phase[i] = WALK_HOME; n.task[i] = T('carry');
+    return;
+  }
   const nodeKind = n.profession[i] === MINER ? NODE_STONE : NODE_TREE;
   const cell = findNode(w, i, rt, b, nodeKind);
   if (cell < 0) return wait(w, i, b, 'no_node');
@@ -258,17 +264,23 @@ function stepNpc(w: SimWorld, i: number): void {
     case WORK_NODE: {
       if (--npc.timer[i] > 0) break;
       const c = npc.aux[i], isStone = n.profession[i] === MINER;
-      {
-        // Ресурс безкінечний: вузол лише «зрубується» візуально й відновлюється (regrow).
-        rt.amount[c] = 0; rt.forest[c] = 0;
-        n.carryKind[i] = isStone ? STONE : WOOD; n.carryAmount[i]++;
-        const k = RESOURCE_KINDS[n.carryKind[i]];
-        w.why.delete(b.id);
-        flowProduce(w, b.id, k, 1);
-        flowEdge(w, 0, b.id, k, 1);
-      }
-      if (n.carryAmount[i] < CARRY_CAP) npc.timer[i] = workTicks(b, WORK_TICKS, richOf(w, b, n.profession[i]));
-      else npc.phase[i] = PLAN;
+      // Ресурс безкінечний: вузол лише «зрубується» візуально й відновлюється (regrow). По одній колоді за візит.
+      rt.amount[c] = 0; rt.forest[c] = 0;
+      n.carryKind[i] = isStone ? STONE : WOOD; n.carryAmount[i]++; npc.stage[i] = 0;
+      flowEdge(w, 0, b.id, RESOURCE_KINDS[n.carryKind[i]], 1);
+      npc.phase[i] = PLAN;
+      break;
+    }
+    case WALK_HOME: {
+      if (!advance(w, i, rt)) break;
+      npc.phase[i] = WORK_HOME; npc.timer[i] = workTicks(b, PROCESS_TICKS, richOf(w, b, n.profession[i])); n.task[i] = T('work');
+      break;
+    }
+    case WORK_HOME: {
+      if (--npc.timer[i] > 0) break;
+      w.why.delete(b.id);
+      flowProduce(w, b.id, RESOURCE_KINDS[n.carryKind[i]], n.carryAmount[i]); // оброблене виробляється тут
+      npc.stage[i] = 1; npc.phase[i] = PLAN;
       break;
     }
     case WALK_DEPOSIT: {
@@ -283,7 +295,7 @@ function stepNpc(w: SimWorld, i: number): void {
           flowEdge(w, b.id, st.id, k, put);
         }
       }
-      if (n.carryAmount[i] === 0) { n.carryKind[i] = 255; npc.phase[i] = PLAN; } else wait(w, i, b, 'storage_full');
+      if (n.carryAmount[i] === 0) { n.carryKind[i] = 255; npc.stage[i] = 0; npc.phase[i] = PLAN; } else wait(w, i, b, 'storage_full');
       break;
     }
     case WALK_TAKE: {

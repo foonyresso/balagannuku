@@ -31,8 +31,8 @@ const WHY: Record<string, string> = {
   no_wood: 'немає вільного дерева (резерв під будівництво)', no_path: 'немає шляху', paused: 'на паузі',
 };
 const STATE_TXT: Record<string, string> = {
-  free: 'вільний', to_node: 'іде до дерева/каменю', working: 'працює', carrying: 'несе ресурс', to_storage_take: 'іде по колоди',
-  to_mill: 'несе колоди на пилораму', milling: 'пиляє', waiting: 'чекає', no_path: 'немає шляху',
+  free: 'вільний', to_node: 'іде до дерева/каменю', working: 'рубає/добуває', to_home: 'несе колоди до хатинки', processing: 'обтесує', carrying: 'несе готове', to_storage_take: 'іде по колоди',
+  to_mill: 'несе колоди на пилораму', milling: 'пиляє', planning: 'обирає ціль', waiting: 'чекає', no_path: 'немає шляху',
 };
 const PROF_TXT: Record<string, string> = {
   idle: 'без роботи', lumberjack: 'лісоруб', miner: 'каменяр', sawyer: 'пильщик', carrier: 'носій', smith: 'коваль', hero: 'герой',
@@ -260,6 +260,10 @@ export class CityView {
       const base = planeToIso(px, py, 0), body = planeToIso(px, py, hw * 1.6);
       const g = this.rowNpc[row];
       g.ellipse(base.x, base.y, hw, hw * 0.5).fill({ color: 0x000000, alpha: 0.35 });
+      if (n.carryAmount[i]) { // ноша над головою: по шматку на одиницю; світліший = оброблене
+        const col = n.carryKind[i] === 1 ? 0x9e9e9e : 0x6d4c41, done = this.w.npc.stage[i] === 1;
+        for (let k = 0; k < n.carryAmount[i]; k++) g.rect(body.x - 5 + k * 3.4, body.y - hw * 0.2 - 4, 3, 3).fill(done ? lighten(lighten(col)) : col).stroke({ width: 0.5, color: 0x000000 });
+      }
       g.roundRect(body.x - hw * 0.8, body.y - hw * 0.2, hw * 1.6, hw * 2.2, hw * 0.6)
         .fill(n.carryAmount[i] ? 0xfff176 : PROF_COLORS[n.profession[i]] ?? 0xffffff);
     }
