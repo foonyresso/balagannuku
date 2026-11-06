@@ -14,5 +14,6 @@ const buildLabel = (): Plugin => ({
 
 export default defineConfig({
   build: { target: 'es2022' },
+  test: { testTimeout: 30000 }, // створення світу 3312² — секунди
   plugins: [buildLabel()],
 });
