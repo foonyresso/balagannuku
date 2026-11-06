@@ -1,4 +1,6 @@
 import type { LobbyPlayer } from '../shared';
+import type { GameState } from '../shared';
+import { loadState, pickSaveFile } from '../persist';
 import { ClientLobby, HostLobby, connectToRoom, isValidRoomCode, normalizeRoomCode, openRoom } from '../net';
 
 const CSS = `
@@ -16,7 +18,8 @@ const CSS = `
 export interface LobbyHandle { destroy(): void }
 export interface LobbyCallbacks {
   /** Хост натиснув «Почати»: лобі й список гравців. */
-  onHostStart?: (lobby: HostLobby) => void;
+  /** loaded — стан із сейва («Продовжити»), інакше нова гра. */
+  onHostStart?: (lobby: HostLobby, loaded?: GameState) => void;
   onJoined?: (client: ClientLobby) => void;
 }
 
@@ -53,7 +56,7 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
       <button id="new">Нова гра</button>
       <input id="code" placeholder="Код кімнати" maxlength="5" style="text-transform:uppercase">
       <button id="join" class="sec">Приєднатися за кодом</button>
-      <button id="cont" class="sec" disabled title="Скоро">Продовжити з сейва</button>
+      <button id="cont" class="sec">Продовжити з сейва</button>
       <div class="err" id="err"></div>`);
     const err = (m: string) => { q('#err').textContent = m; };
     const name = () => { const n = q<HTMLInputElement>('#nick').value.trim() || 'Гравець'; try { localStorage.setItem('balagannuku.nick', n); } catch { /* ignore */ } return n; };
@@ -65,6 +68,19 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
         lobby = new HostLobby(code, name());
         hostView(lobby);
       } catch { err('Не вдалося створити кімнату (немає зв’язку з сервером).'); }
+    };
+    q('#cont').onclick = async () => {
+      try {
+        const save = await pickSaveFile();
+        if (!save) return;
+        const loaded = loadState(save);
+        if (!loaded.players.length) return err('У сейві немає гравців.');
+        err('Створюю кімнату…');
+        let lobby!: HostLobby;
+        const { code } = await openRoom((c) => lobby.accept(c));
+        lobby = HostLobby.fromPlayers(code, loaded.players);
+        hostView(lobby, loaded);
+      } catch (e) { err(e instanceof Error ? e.message : 'Не вдалося прочитати сейв.'); }
     };
     q('#join').onclick = async () => {
       const code = normalizeRoomCode(q<HTMLInputElement>('#code').value);
@@ -81,12 +97,12 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
     };
   };
 
-  const hostView = (lobby: HostLobby) => {
+  const hostView = (lobby: HostLobby, loaded?: GameState) => {
     setBox(`<h2>Ваша кімната</h2><div class="code">${lobby.roomCode}</div>
       <div>Поділіться кодом з друзями.</div><ul id="pl">${list(lobby.players())}</ul>
       <button id="start">Почати</button>`);
     lobby.onChange = (ps) => { q('#pl').innerHTML = list(ps); };
-    q('#start').onclick = () => cb.onHostStart?.(lobby);
+    q('#start').onclick = () => cb.onHostStart?.(lobby, loaded);
   };
 
   menu();
