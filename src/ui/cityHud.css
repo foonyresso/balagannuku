@@ -1,0 +1,37 @@
+#cityHud { position: fixed; inset: 0; pointer-events: none; font-size: calc(13px * var(--ui, 1)); line-height: 1.4; color: #eee; font-family: sans-serif; }
+#cityHud > * { pointer-events: auto; }
+#cityHud button { font: inherit; padding: 0.3em 0.7em; cursor: pointer; color: #eee; background: #3a2f4a; border: 1px solid #665a78; border-radius: 0.35em; }
+#cityHud button:hover { background: #4b3e60; }
+#cityHud button.sel { outline: 2px solid #ffd54f; }
+#cityHud button.no { opacity: 0.55; }
+#cityHud [hidden] { display: none !important; }
+#cityTop { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; gap: 1em;
+  padding: 0.4em 1em; background: rgba(20, 14, 28, 0.88); }
+#cityInfo { position: absolute; right: 0.8em; bottom: 9em; width: 21em; max-height: 60vh; overflow: auto; padding: 0.7em 0.9em;
+  background: rgba(20, 14, 28, 0.94); border: 1px solid #665a78; border-radius: 0.6em; }
+#cityInfo.bad { border-color: #c55; }
+#cityInfo .hd { display: flex; justify-content: space-between; gap: 0.5em; }
+#cityInfo h3 { margin: 0; font-size: 1.15em; }
+#cityInfo small { color: #9a90aa; }
+#cityInfo h4 { margin: 0.6em 0 0.2em; font-size: 1em; color: #bbb; }
+#infoRows { width: 100%; border-collapse: collapse; margin-top: 0.4em; }
+#infoRows th { text-align: left; font-weight: normal; color: #9a90aa; padding: 0.1em 0.8em 0.1em 0; white-space: nowrap; vertical-align: top; }
+#infoRows td { padding: 0.1em 0; }
+#cityInfo .acts { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.6em; }
+#infoDemolish.arm { background: #8a2b2b; }
+#cityHud .row { padding: 0.15em 0.4em; border-radius: 0.3em; cursor: pointer; }
+#cityHud .row:hover { background: #3a2f4a; }
+#cityHud .row.sel { background: #4b3e60; outline: 1px solid #ffd54f; }
+#cityHud .row.bad { color: #f99; }
+#cityMsg { position: absolute; left: 50%; bottom: 8.6em; transform: translateX(-50%); color: #ffd54f; text-shadow: 0 0 4px #000; pointer-events: none; text-align: center; }
+#cityBottom { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(20, 14, 28, 0.94); border-top: 1px solid #665a78; }
+#cityBody { padding: 0.5em 0.8em; max-height: 30vh; overflow: auto; }
+#cityBody .btns { display: flex; flex-wrap: wrap; gap: 0.4em; }
+#cityBody .btns button { display: flex; flex-direction: column; align-items: flex-start; min-width: 7em; }
+#cityBody .btns small { color: #bbb; }
+#cityTabs { display: flex; align-items: center; gap: 0.4em; padding: 0.4em 0.8em; border-top: 1px solid #3a2f4a; }
+#cityHint { margin-left: 1em; color: #9ad; }
+#citySpeed { display: flex; align-items: center; gap: 0.25em; }
+#citySpeed button { min-width: 2.6em; padding: 0.2em 0.4em; }
+#citySpeed button:disabled { opacity: 0.6; cursor: default; }
+#speedActual { margin-left: 0.5em; color: #f9a; }

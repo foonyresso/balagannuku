@@ -26,10 +26,12 @@ const toSnapshot = (s: MapState): SerializedGameState =>
 /** Хост: тримає авторитетний стан, приймає команди клієнтів, розсилає події. */
 export class HostSession {
   onChange: () => void = () => {};
+  /** Поточна швидкість гри (0 = пауза); нові/перепідключені гравці отримують її при зміні лобі. */
+  speed = 1;
 
   constructor(private lobby: HostLobby, readonly state: MapState) {
     this.syncPlayers();
-    lobby.onChange = () => { this.syncPlayers(); this.onChange(); };
+    lobby.onChange = () => { this.syncPlayers(); this.lobby.broadcast({ t: 'speed', speed: this.speed }); this.onChange(); };
     lobby.onMessage = (player, msg) => {
       if (msg.t !== 'command') return;
       const cmd = msg.cmd;
@@ -52,6 +54,11 @@ export class HostSession {
     }
   }
 
+  setSpeed(speed: number): void {
+    this.speed = speed;
+    this.lobby.broadcast({ t: 'speed', speed });
+  }
+
   /** Вибір старту (і для самого хоста): валідація, застосування, розсилка всім. */
   claim(player: PlayerId, sector: SectorId) {
     const r = claimStart(this.state, player, sector);
@@ -65,6 +72,8 @@ export class ClientSession {
   readonly state: MapState;
   onChange: () => void = () => {};
   onResult: (ok: boolean, reason?: CommandRejectReason) => void = () => {};
+  /** Хост змінив швидкість гри. */
+  onSpeed: (speed: number) => void = () => {};
   private seq = 0;
 
   constructor(private client: ClientLobby, snapshot: SerializedGameState, readonly me: PlayerId) {
@@ -88,6 +97,7 @@ export class ClientSession {
     } else if (m.t === 'snapshot') {
       Object.assign(this.state, m.state);
       this.onChange();
-    } else if (m.t === 'command_result') this.onResult(m.result.ok, m.result.reason);
+    } else if (m.t === 'speed') this.onSpeed(m.speed);
+    else if (m.t === 'command_result') this.onResult(m.result.ok, m.result.reason);
   }
 }
