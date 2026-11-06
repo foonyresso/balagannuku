@@ -4,6 +4,7 @@ import { MIN_START_DISTANCE, RESOURCE_KINDS } from './shared';
 import { MapView, RESOURCE_COLORS, RESOURCE_NAMES } from './render/mapView';
 import { canClaimStart, claimStart, createInitialState, DEFAULT_WORLD_RADIUS, SECTOR_RESOURCES } from './sim/worldgen';
 import { mulberry32 } from './sim/rng';
+import { mountLobby } from './ui';
 
 const ME = 'me';
 const REASONS: Record<string, string> = {
@@ -24,8 +25,16 @@ function newWorld(seed: number) {
   ]);
 }
 
+const lobby = mountLobby({ onHostStart: () => lobby.destroy(), onJoined: () => lobby.destroy() });
+const statusEl = document.getElementById('status')!;
 const app = new Application();
-await app.init({ resizeTo: window, background: '#1a1420', antialias: true });
+try {
+  await app.init({ resizeTo: window, background: '#1a1420', antialias: true, preference: 'webgl' });
+} catch (e) {
+  statusEl.textContent = 'Не вдалося запустити графіку (WebGL): ' + (e instanceof Error ? e.message : String(e));
+  statusEl.style.color = '#f66';
+  throw e;
+}
 document.getElementById('app')!.appendChild(app.canvas);
 
 const view = new MapView(app, () => state);
@@ -96,5 +105,4 @@ applyScale();
 reset();
 app.renderer.on('resize', () => view.redraw());
 
-import { mountLobby } from './ui';
-const lobby = mountLobby({ onHostStart: () => lobby.destroy(), onJoined: () => lobby.destroy() });
+
