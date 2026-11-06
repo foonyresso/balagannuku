@@ -1,11 +1,11 @@
 import type { BuildingState, ResourceKind } from '../shared';
 import {
-  PROFESSIONS, RESOURCE_KINDS, ROAD_ATTACH_MIN_STAGE, ROAD_SPEED_MULT, TASKS, TRAIL_DECAY_FACTOR,
+  PROFESSIONS, RESOURCE_KINDS, ROAD_ATTACH_MIN_STAGE, ROAD_SPEED_MULT, TASKS,
   TRAIL_DECAY_INTERVAL, TRAIL_MAX, TRAIL_STEP_ADD, TrailStage, stageFromTraffic,
 } from '../shared';
 import {
-  ATTACHED_WORK_MULT, CARRY_CAP, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, WOOD_RESERVE, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
-  ROAD_CHECK_INTERVAL, STONE_AMOUNT, STORAGE_CAP, TREE_AMOUNT, TREE_REGROW_INTERVAL, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
+  ATTACHED_WORK_MULT, CARRY_CAP, PROCESS_TICKS, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, WOOD_RESERVE, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
+  ROAD_CHECK_INTERVAL, TRAIL_DECAY_BY_STAGE, STONE_AMOUNT, STORAGE_CAP, TREE_AMOUNT, TREE_REGROW_INTERVAL, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
 } from './balance';
 import { flowConsume, flowEdge, flowProduce, flowStarve, rollFlowWindow } from './flow';
 import { findPath } from './path';
@@ -14,10 +14,12 @@ import {
   type SectorRt, type SimWorld,
 } from './world';
 import { autoStaffIdle } from './assign';
+import { hash2 } from './rng';
 import { spawnNpc } from './npcs';
 
 // Фази NPC
-const PLAN = 0, WALK_NODE = 1, WORK_NODE = 2, WALK_DEPOSIT = 3, WALK_TAKE = 4, WALK_MILL = 5, WORK_MILL = 6, WAIT = 7;
+export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7, WALK_HOME: 8, WORK_HOME: 9 } as const;
+const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT, WALK_HOME, WORK_HOME } = PHASE;
 const T = (n: (typeof TASKS)[number]) => TASKS.indexOf(n);
 const WOOD = RESOURCE_KINDS.indexOf('wood'), STONE = RESOURCE_KINDS.indexOf('stone'), PLANKS = RESOURCE_KINDS.indexOf('planks');
 const SAWYER = PROFESSIONS.indexOf('sawyer'), MINER = PROFESSIONS.indexOf('miner');
@@ -129,7 +131,7 @@ function advance(w: SimWorld, i: number, rt: SectorRt): boolean {
   return false;
 }
 
-function stepOn(w: SimWorld, rt: SectorRt, t: number): void {
+export function stepOn(w: SimWorld, rt: SectorRt, t: number): void {
   const tr = rt.trails.traffic;
   tr[t] = Math.min(TRAIL_MAX, tr[t] + TRAIL_STEP_ADD);
   const ns = stageFromTraffic(tr[t], rt.stage[t]);
@@ -140,11 +142,23 @@ function stepOn(w: SimWorld, rt: SectorRt, t: number): void {
   }
 }
 
-/** Найближча клітинка з вузлом даного виду (пошук кільцями навколо входу, радіус у клітинках). */
-function findNode(rt: SectorRt, b: BuildingState, kind: number): number {
+/** Вузол уже обраний іншим живим NPC, який до нього йде або на ньому працює. */
+function claimedByOther(w: SimWorld, rt: SectorRt, cell: number, me: number): boolean {
+  const o = rt.claimBy[cell] - 1;
+  return o >= 0 && o !== me && w.state.npcs.alive[o] === 1 && w.npc.aux[o] === cell &&
+    (w.npc.phase[o] === WALK_NODE || w.npc.phase[o] === WORK_NODE);
+}
+
+/**
+ * Найближча клітинка з вузлом даного виду (кільцями навколо входу, радіус у клітинках).
+ * Віддаємо перевагу вузлам, які ніхто не обрав, щоб працівники не стовпились на одному дереві.
+ */
+function findNode(w: SimWorld, i: number, rt: SectorRt, b: BuildingState, kind: number): number {
   const ex = Math.floor(b.entrance.x / TPC), ey = Math.floor(b.entrance.y / TPC);
+  let fallback = -1, fallbackR = 0;
   for (let r = 1; r <= WORK_RADIUS; r++) {
-    let best = -1, bd = Infinity;
+    if (fallback >= 0 && r > fallbackR + 6) break;
+    let best = -1, bd = Infinity, bestAny = -1, bad = Infinity;
     for (let dy = -r; dy <= r; dy++) {
       const y = ey + dy;
       if (y < 0 || y >= CELLS) continue;
@@ -152,16 +166,25 @@ function findNode(rt: SectorRt, b: BuildingState, kind: number): number {
       for (let dx = -r; dx <= r; dx += step) {
         const x = ex + dx;
         if (x < 0 || x >= CELLS) continue;
-        const i = y * CELLS + x;
-        if (rt.kind[i] === kind) {
-          const d = dx * dx + dy * dy;
-          if (d < bd) { bd = d; best = i; }
-        }
+        const c = y * CELLS + x;
+        if (rt.kind[c] !== kind) continue;
+        const d = dx * dx + dy * dy;
+        if (d < bad) { bad = d; bestAny = c; }
+        if (d < bd && !claimedByOther(w, rt, c, i)) { bd = d; best = c; }
       }
     }
     if (best >= 0) return best;
+    if (fallback < 0 && bestAny >= 0) { fallback = bestAny; fallbackR = r; }
   }
-  return -1;
+  return fallback;
+}
+
+/** Точка біля входу будівлі: у кожного NPC своя (детермінований зсув), щоб не стояли в одному тайлі. */
+function spotNear(rt: SectorRt, b: BuildingState, i: number): { x: number; y: number } {
+  const h1 = hash2(i, b.id, 7), h2 = hash2(b.id, i, 11);
+  const x = Math.min(TILES - 1, Math.max(0, b.entrance.x + Math.floor(h1 * 9) - 4));
+  const y = Math.min(TILES - 1, b.entrance.y + Math.floor(h2 * 5));
+  return rt.occ[y * TILES + x] ? { x: b.entrance.x, y: b.entrance.y } : { x, y };
 }
 
 /** Час дії: дорога прискорює; багатство сектора (richness) = щедрість, тобто швидкість видобутку. */
@@ -182,7 +205,7 @@ function planDeposit(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): vo
   const n = w.state.npcs, kind = RESOURCE_KINDS[n.carryKind[i]];
   const st = nearestAcceptor(rt, b.owner, n.x[i], n.y[i], kind);
   if (!st) return wait(w, i, b, 'no_storage');
-  if (!setPath(w, i, rt, st.entrance.x, st.entrance.y)) return wait(w, i, b, 'no_path');
+  { const sp = spotNear(rt, st, i); if (!setPath(w, i, rt, sp.x, sp.y)) return wait(w, i, b, 'no_path'); }
   n.targetBuilding[i] = st.id;
   w.npc.phase[i] = WALK_DEPOSIT; n.task[i] = T('carry');
 }
@@ -190,13 +213,19 @@ function planDeposit(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): vo
 function plan(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   const n = w.state.npcs, npc = w.npc;
   if (n.profession[i] === SAWYER) return planSawyer(w, i, rt, b);
-  if (n.carryAmount[i] > 0) return planDeposit(w, i, rt, b);
+  if (n.carryAmount[i] > 0 && npc.stage[i] === 1) return planDeposit(w, i, rt, b); // оброблене -> споживач/склад
+  if (n.carryAmount[i] >= CARRY_CAP) { // набрали рейс: спершу до своєї хатинки на обробку
+    const sp = spotNear(rt, b, i);
+    if (!setPath(w, i, rt, sp.x, sp.y)) return wait(w, i, b, 'no_path');
+    npc.phase[i] = WALK_HOME; n.task[i] = T('carry');
+    return;
+  }
   const nodeKind = n.profession[i] === MINER ? NODE_STONE : NODE_TREE;
-  const cell = findNode(rt, b, nodeKind);
+  const cell = findNode(w, i, rt, b, nodeKind);
   if (cell < 0) return wait(w, i, b, 'no_node');
   const nt = nodeTile(w.state.world.seed, rt.id, cell % CELLS, (cell / CELLS) | 0);
   if (!setPath(w, i, rt, nt.x, nt.y)) return wait(w, i, b, 'no_path');
-  npc.aux[i] = cell; npc.phase[i] = WALK_NODE; n.task[i] = T('walk');
+  npc.aux[i] = cell; rt.claimBy[cell] = i + 1; npc.phase[i] = WALK_NODE; n.task[i] = T('walk');
 }
 
 function planSawyer(w: SimWorld, i: number, rt: SectorRt, mill: BuildingState): void {
@@ -205,13 +234,13 @@ function planSawyer(w: SimWorld, i: number, rt: SectorRt, mill: BuildingState): 
   if (carry === PLANKS) return planDeposit(w, i, rt, mill);
   if (mill.paused && carry < 0 && stockOf(mill, 'planks') === 0) return wait(w, i, mill, 'paused', false);
   if (carry === WOOD || stockOf(mill, 'wood') >= 2 || stockOf(mill, 'planks') > 0) {
-    if (!setPath(w, i, rt, mill.entrance.x, mill.entrance.y)) return wait(w, i, mill, 'no_path');
+    { const sp = spotNear(rt, mill, i); if (!setPath(w, i, rt, sp.x, sp.y)) return wait(w, i, mill, 'no_path'); }
     npc.phase[i] = WALK_MILL; n.task[i] = T('walk');
     return;
   }
   const st = nearestStorage(rt, mill.owner, n.x[i], n.y[i], 'wood', 2 + WOOD_RESERVE);
   if (!st) return wait(w, i, mill, 'no_wood');
-  if (!setPath(w, i, rt, st.entrance.x, st.entrance.y)) return wait(w, i, mill, 'no_path');
+  { const sp = spotNear(rt, st, i); if (!setPath(w, i, rt, sp.x, sp.y)) return wait(w, i, mill, 'no_path'); }
   n.targetBuilding[i] = st.id;
   npc.phase[i] = WALK_TAKE; n.task[i] = T('walk');
 }
@@ -235,17 +264,23 @@ function stepNpc(w: SimWorld, i: number): void {
     case WORK_NODE: {
       if (--npc.timer[i] > 0) break;
       const c = npc.aux[i], isStone = n.profession[i] === MINER;
-      {
-        // Ресурс безкінечний: вузол лише «зрубується» візуально й відновлюється (regrow).
-        rt.amount[c] = 0; rt.forest[c] = 0;
-        n.carryKind[i] = isStone ? STONE : WOOD; n.carryAmount[i]++;
-        const k = RESOURCE_KINDS[n.carryKind[i]];
-        w.why.delete(b.id);
-        flowProduce(w, b.id, k, 1);
-        flowEdge(w, 0, b.id, k, 1);
-      }
-      if (n.carryAmount[i] < CARRY_CAP) npc.timer[i] = workTicks(b, WORK_TICKS, richOf(w, b, n.profession[i]));
-      else npc.phase[i] = PLAN;
+      // Ресурс безкінечний: вузол лише «зрубується» візуально й відновлюється (regrow). По одній колоді за візит.
+      rt.amount[c] = 0; rt.forest[c] = 0;
+      n.carryKind[i] = isStone ? STONE : WOOD; n.carryAmount[i]++; npc.stage[i] = 0;
+      flowEdge(w, 0, b.id, RESOURCE_KINDS[n.carryKind[i]], 1);
+      npc.phase[i] = PLAN;
+      break;
+    }
+    case WALK_HOME: {
+      if (!advance(w, i, rt)) break;
+      npc.phase[i] = WORK_HOME; npc.timer[i] = workTicks(b, PROCESS_TICKS, richOf(w, b, n.profession[i])); n.task[i] = T('work');
+      break;
+    }
+    case WORK_HOME: {
+      if (--npc.timer[i] > 0) break;
+      w.why.delete(b.id);
+      flowProduce(w, b.id, RESOURCE_KINDS[n.carryKind[i]], n.carryAmount[i]); // оброблене виробляється тут
+      npc.stage[i] = 1; npc.phase[i] = PLAN;
       break;
     }
     case WALK_DEPOSIT: {
@@ -260,7 +295,7 @@ function stepNpc(w: SimWorld, i: number): void {
           flowEdge(w, b.id, st.id, k, put);
         }
       }
-      if (n.carryAmount[i] === 0) { n.carryKind[i] = 255; npc.phase[i] = PLAN; } else wait(w, i, b, 'storage_full');
+      if (n.carryAmount[i] === 0) { n.carryKind[i] = 255; npc.stage[i] = 0; npc.phase[i] = PLAN; } else wait(w, i, b, 'storage_full');
       break;
     }
     case WALK_TAKE: {
@@ -329,12 +364,15 @@ function updateRoadAttached(w: SimWorld): void {
   }
 }
 
-function decayTrails(w: SimWorld): void {
+/** Згасання на `steps` інтервалів одразу (звичайний тік = 1). Швидкість залежить від стадії тайла (TRAIL_DECAY_BY_STAGE). */
+export function decayTrails(w: SimWorld, steps = 1): void {
+  const keep = TRAIL_DECAY_BY_STAGE.map((r) => Math.pow(1 - r, steps));
   for (const rt of w.sectors.values()) {
     const t = rt.trails.traffic;
     for (let c = 0; c < t.length; c++) {
       if (!t[c]) continue;
-      t[c] = Math.floor(t[c] * TRAIL_DECAY_FACTOR);
+      // Випадкове (детерміноване) округлення: слабкий трафік згасає повільно, а не зникає за один крок.
+      t[c] = Math.floor(t[c] * keep[rt.stage[c]] + hash2(c, w.state.tick, 9));
       const ns = stageFromTraffic(t[c], rt.stage[c]);
       if (ns !== rt.stage[c]) {
         rt.stage[c] = ns;

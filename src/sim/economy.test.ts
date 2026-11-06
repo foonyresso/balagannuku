@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../shared';
-import { RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
-import { buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
+import { DEFAULT_TRAIL_THRESHOLDS, RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
+import { decayTrails, stepOn, residents, buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
 import { findPath, setRoadPull } from './path';
 import { ROAD_SPEED_MULT } from '../shared';
 import { MIGRATIONS } from '../shared';
@@ -284,6 +284,102 @@ describe('економіка', () => {
     expect(w.state.npcs.count).toBeGreaterThan(before + 1);
     expect(sm.workers.length).toBeGreaterThanOrEqual(1);
     expect(lj.workers.length + sm.workers.length).toBe(w.state.npcs.count - 2);
+  });
+
+  it('жителі видимі: працівники розходяться по різних деревах, вільні не стовпляться; лічильник = список станів', () => {
+    const w = setup();
+    const tiles = (ids: number[]) => new Set(ids.map((i) => `${Math.floor(w.state.npcs.x[i])},${Math.floor(w.state.npcs.y[i])}`)).size;
+    const all = residents(w, 'p');
+    expect(all.length).toBe(w.state.npcs.count);
+    expect(tiles(all.map((r) => r.id))).toBeGreaterThanOrEqual(4); // 5 вільних не в одній точці
+    const lj = place(w, 'lumberjack', 40, 30);
+    staffBuilding(w, 'p', lj.id);
+    let spread = 0, samples = 0;
+    for (let t = 0; t < 400; t++) {
+      stepWorld(w);
+      if (t > 100 && t % 10 === 0) { spread += tiles(lj.workers); samples++; }
+    }
+    expect(spread / samples).toBeGreaterThanOrEqual(3.5); // з 5 робітників видно хоча б ~4 різні місця
+    const list = residents(w, 'p');
+    expect(list.length).toBe(w.state.npcs.count);
+    expect(list.every((r) => r.state !== 'free')).toBe(true);
+    expect(list.some((r) => r.state === 'working' || r.state === 'to_node' || r.state === 'carrying')).toBe(true);
+  });
+
+  it('жителі: стани вільний/чекає з причиною', () => {
+    const w = setup();
+    expect(residents(w, 'p').every((r) => r.state === 'free')).toBe(true);
+    getSectorRt(w, 0).kind.fill(0); // немає дерев
+    const lj = place(w, 'lumberjack', 40, 30);
+    staffBuilding(w, 'p', lj.id);
+    run(w, 60);
+    const r = residents(w, 'p')[0];
+    expect(r.state).toBe('waiting');
+    expect(r.why).toBe('no_node');
+  });
+
+  it('цикл лісоруба: 3 колоди по одній -> хатинка -> обтесування -> лише потім доставка', () => {
+    const w = setup();
+    w.npc.manual.fill(1); // лише один працівник: решта вільних не автопризначається
+    const lj = place(w, 'lumberjack', 40, 30);
+    staffBuilding(w, 'p', lj.id, 1);
+    const id = lj.workers[0];
+    const seq: string[] = [];
+    const carries = new Set<number>();
+    let woodOnlyFromDelivery = true, prevState = '', prevWood = hall(w).stock.wood ?? 0;
+    for (let t = 0; t < 900; t++) {
+      stepWorld(w);
+      const r = residents(w, 'p').find((x) => x.id === id)!;
+      if (r.state !== 'planning' && seq[seq.length - 1] !== r.state) seq.push(r.state);
+      carries.add(r.carry);
+      const wood = hall(w).stock.wood ?? 0;
+      // склад поповнюється лише в момент доставки обтесаного (попередній стан — «несе готове»)
+      if (wood > prevWood && prevState !== 'carrying') woodOnlyFromDelivery = false;
+      prevWood = wood; prevState = r.state;
+    }
+    const first = seq.slice(0, 12).join('>');
+    expect(first).toContain('to_node>working>to_node>working>to_node>working>to_home>processing>carrying');
+    expect([...carries]).toEqual(expect.arrayContaining([0, 1, 2, 3]));
+    expect(woodOnlyFromDelivery).toBe(true);
+    const f = w.state.flows.total;
+    expect(f.byBuilding[lj.id].produced.wood! % 3).toBe(0); // виробництво — партіями по 3 після обтесування
+    expect(f.edges[`0>${lj.id}:wood`]).toBeGreaterThanOrEqual(f.byBuilding[lj.id].produced.wood!);
+    expect(f.edges[`${lj.id}>${hall(w).id}:wood`]).toBeGreaterThan(0);
+  });
+
+  it('стежки: один прохід нічого не дає, кілька поспіль — так; стадії ростуть геометрично', () => {
+    const w = setup();
+    const rt = getSectorRt(w, 0);
+    const tile = 5 * SECTOR_SIZE + 5;
+    stepOn(w, rt, tile);
+    expect(rt.stage[tile]).toBe(TrailStage.None); // один NPC один раз — не стежка
+    for (let k = 0; k < 7; k++) stepOn(w, rt, tile);
+    expect(rt.stage[tile]).toBe(TrailStage.Trampled); // 8 проходів
+    const t = DEFAULT_TRAIL_THRESHOLDS;
+    expect(t.road / t.trampled).toBeGreaterThanOrEqual(5);
+    expect(t.paved / t.road).toBeGreaterThanOrEqual(5); // кожна наступна стадія набагато важча
+    for (let k = 0; k < t.road; k++) stepOn(w, rt, tile);
+    expect(rt.stage[tile]).toBe(TrailStage.Road);
+  });
+
+  it('згасання: готова дорога живе на порядок довше за слабкий слід, але зрештою зникає', () => {
+    const w = setup();
+    const rt = getSectorRt(w, 0);
+    const weak = 5 * SECTOR_SIZE + 5, paved = 5 * SECTOR_SIZE + 9;
+    for (let k = 0; k < 10; k++) stepOn(w, rt, weak);
+    for (let k = 0; k < 600; k++) stepOn(w, rt, paved);
+    expect(rt.stage[paved]).toBe(TrailStage.Paved);
+    let weakDied = 0, pavedDied = 0;
+    for (let call = 1; call <= 6000 && !(weakDied && pavedDied); call++) {
+      w.state.tick = call;
+      decayTrails(w, 50); // 50 інтервалів за виклик
+      if (!weakDied && rt.trails.traffic[weak] === 0) weakDied = call * 50;
+      if (!pavedDied && rt.trails.traffic[paved] === 0) pavedDied = call * 50;
+    }
+    expect(weakDied).toBeGreaterThan(0); // слабкий слід зникає
+    expect(pavedDied).toBeGreaterThan(0); // і дорога зрештою заростає, якщо ніхто не ходить
+    expect(pavedDied).toBeGreaterThanOrEqual(weakDied * 10); // але на порядок довше
+    expect(weakDied).toBeGreaterThan(500); // і слабкий слід живе довго (сотні інтервалів = години гри), а не одразу
   });
 
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {

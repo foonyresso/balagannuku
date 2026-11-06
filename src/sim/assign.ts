@@ -11,6 +11,7 @@ export function unassignNpc(w: SimWorld, npc: number): void {
   const n = w.state.npcs;
   w.npc.workplace[npc] = -1; w.npc.phase[npc] = 0; w.npc.path[npc] = null;
   n.profession[npc] = 0; n.task[npc] = 0;
+  n.carryAmount[npc] = 0; n.carryKind[npc] = 255; w.npc.stage[npc] = 0; // ноша губиться
 }
 
 /** Посадити NPC на роботу в будівлі (без перевірок: їх робить виклик). */
