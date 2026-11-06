@@ -204,6 +204,17 @@ describe('економіка', () => {
     expect(roadCells).toBeLessThan(SECTOR_SIZE * SECTOR_SIZE * 0.25); // не весь сектор
   });
 
+  it('пауза перемикається одразу й незалежно від працівників', () => {
+    const w = setup();
+    const sm = place(w, 'sawmill', 33, 31); // без працівників
+    for (let k = 0; k < 6; k++) {
+      const want = k % 2 === 0;
+      expect(applyCommand(w, { player: 'p', seq: k, cmd: { type: 'set_building_paused', building: sm.id, paused: want } }).ok).toBe(true);
+      expect(sm.paused).toBe(want);
+      run(w, 7);
+    }
+  });
+
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {
     const w = setup();
     place(w, 'warehouse', 20, 20);
