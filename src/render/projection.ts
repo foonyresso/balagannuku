@@ -20,7 +20,7 @@ const RAD = (VIEW_ANGLE_DEG * Math.PI) / 180;
 export const ISO_Y = Math.sin(RAD);
 /** Масштаб висоти (вертикалі): cos(кута). */
 export const ISO_Z = Math.cos(RAD);
-export const ZOOM_MIN = 0.08;
+export const ZOOM_MIN = 0.05;
 export const ZOOM_MAX = 3;
 
 export interface Camera {
@@ -133,4 +133,20 @@ export function pickTile(tiles: readonly PickTile[], sx: number, sy: number, cam
     if (pointInPoly(p.x, p.y, g.top) || g.walls.some((w) => pointInPoly(p.x, p.y, w.poly))) return t.id;
   }
   return null;
+}
+
+/**
+ * Обмеження камери межами світу: центр екрана лишається всередині прямокутника площини
+ * [minX..maxX]×[minY..maxY]. Піддається тесту, не залежить від Pixi.
+ */
+export function clampCamToWorld(
+  cam: Camera, screenW: number, screenH: number,
+  bounds: { minX: number; minY: number; maxX: number; maxY: number },
+): Camera {
+  const c = screenToPlane(screenW / 2, screenH / 2, cam);
+  const nx = Math.min(bounds.maxX, Math.max(bounds.minX, c.x));
+  const ny = Math.min(bounds.maxY, Math.max(bounds.minY, c.y));
+  if (nx === c.x && ny === c.y) return cam;
+  const iso = planeToIso(nx, ny);
+  return { zoom: cam.zoom, x: screenW / 2 - iso.x * cam.zoom, y: screenH / 2 - iso.y * cam.zoom };
 }

@@ -5,7 +5,8 @@ import {
   applyCommand, buildCheck, checkPlace, residents, getSectorRt, nodeTile, ratePerSec, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
 } from '../sim';
 import { COSTS, FOOTPRINT, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
-import { ISO_Y, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
+import { ISO_Y, clampCamToWorld, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
+import { Surroundings } from './surroundings';
 
 /** Розмір ТАЙЛА в одиницях площини (та сама проєкція, що й у карти): сектор = SECTOR_SIZE тайлів ≈ 1024 одиниці. */
 const TILE = 4;
@@ -62,12 +63,16 @@ export class CityView {
   private flowTitle: HTMLElement | null = null;
 
   constructor(private app: Application, private w: SimWorld, private player: string, private sector: number, private onExit: () => void) {
+    // Сусідні сектори (ландшафт): ряд над домашнім і по боках — під землею, ряд під ним — поверх шарів.
+    this.surroundings = new Surroundings(app.renderer, w.state.world.seed, w.state.sectors[sector], (dx, dy) => this.neighbourSector(dx, dy));
+    this.root.addChild(this.surroundings.back);
     this.root.addChild(this.ground);
     for (let r = 0; r < NB; r++) {
       const o = new Graphics(), n = new Graphics();
       this.rowObj.push(o); this.rowNpc.push(n);
       this.root.addChild(o, n);
     }
+    this.root.addChild(this.surroundings.front);
     this.root.addChild(this.hoverG);
     app.stage.addChild(this.root);
     const mid = planeToIso((SECTOR_SIZE * TILE) / 2, (SECTOR_SIZE * TILE) / 2);
@@ -90,7 +95,16 @@ export class CityView {
     this.rebuild();
   }
 
+  private surroundings: Surroundings;
+  /** Багатство сусіднього сектора: сусідній гекс карти за напрямом (або домашній, якщо гекса немає). */
+  private neighbourSector(dx: number, dy: number) {
+    const secs = this.w.state.sectors, home = secs[this.sector];
+    const hit = secs.find((s) => s.hex.q === home.hex.q + dx && s.hex.r === home.hex.r + dy);
+    return hit ?? home;
+  }
+
   private applyCam(): void {
+    this.cam = clampCamToWorld(this.cam, this.app.screen.width, this.app.screen.height, Surroundings.bounds());
     this.root.position.set(this.cam.x, this.cam.y);
     this.root.scale.set(this.cam.zoom);
   }
@@ -262,6 +276,7 @@ export class CityView {
   }
 
   private draw = (): void => {
+    this.surroundings.update(this.cam, this.app.screen.width, this.app.screen.height);
     this.cull();
     const n = this.w.state.npcs;
     for (const g of this.rowNpc) g.clear();
