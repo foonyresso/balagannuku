@@ -95,3 +95,6 @@ applyScale();
 
 reset();
 app.renderer.on('resize', () => view.redraw());
+
+import { mountLobby } from './ui';
+const lobby = mountLobby({ onHostStart: () => lobby.destroy(), onJoined: () => lobby.destroy() });
