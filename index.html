@@ -4,11 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Балаганники</title>
-    <style>html,body{margin:0;height:100%;background:#1a1420;color:#eee;font-family:sans-serif;overflow:hidden}h1{position:absolute;margin:12px 16px;z-index:1}</style>
+    <style>
+      :root { --ui: 1; }
+      html, body { margin: 0; height: 100%; background: #1a1420; color: #eee; font-family: sans-serif; overflow: hidden; }
+      #app canvas { display: block; touch-action: none; }
+      #hud { position: absolute; top: 0; left: 0; font-size: calc(14px * var(--ui)); padding: 0.7em 1em;
+        background: rgba(20, 14, 28, 0.85); border-bottom-right-radius: 0.6em; line-height: 1.8; }
+      #hud h1 { font-size: 1.4em; margin: 0 0 0.3em; }
+      #hud label { display: flex; align-items: center; gap: 0.6em; }
+      #hud input[type=range] { width: 8em; }
+      #hud button { font-size: 1em; padding: 0.3em 0.8em; cursor: pointer; }
+      #status { color: #ffd54f; }
+      #tip { display: none; position: absolute; pointer-events: none; font-size: calc(13px * var(--ui));
+        background: rgba(20, 14, 28, 0.95); border: 1px solid #665; border-radius: 0.5em; padding: 0.6em 0.9em; min-width: 11em; }
+      #tip h3 { margin: 0 0 0.3em; font-size: 1.1em; }
+      #tip .row { display: flex; align-items: center; gap: 0.5em; }
+      #tip .row i { width: 0.8em; height: 0.8em; border-radius: 50%; display: inline-block; }
+      #tip .row span { flex: 1; }
+      #tip em { display: block; margin-top: 0.4em; color: #9ad; font-style: normal; }
+      #tip em.bad { color: #f77; }
+    </style>
   </head>
   <body>
-    <h1>Балаганники</h1>
     <div id="app"></div>
+    <div id="hud">
+      <h1>Балаганники</h1>
+      <div id="status"></div>
+      <label>Мін. відстань між стартами <input id="dist" type="range" min="2" max="14" step="1" /> <b id="distVal"></b></label>
+      <label>Масштаб інтерфейсу <input id="uiScale" type="range" min="0.75" max="2" step="0.05" value="1" /> <b id="uiVal"></b></label>
+      <button id="newWorld">Новий світ</button>
+    </div>
+    <div id="tip"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
