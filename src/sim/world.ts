@@ -3,8 +3,8 @@ import type {
   SerializedGameState, TrailLayer,
 } from '../shared';
 import { SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, stageFromTraffic } from '../shared';
-import { fbm } from './noise';
 import { hash2 } from './rng';
+import { genNode } from './nodegen';
 import { NPC_CAPACITY, STONE_AMOUNT, TREE_AMOUNT } from './balance';
 import { createInitialState } from './worldgen';
 import { pack, unpack } from './pack';
@@ -90,13 +90,8 @@ export function nodeTile(seed: number, sectorId: number, cx: number, cy: number)
 
 /** Вид і початковий залишок вузла (клітинка навігації) ресурсу в клітинці — чиста функція від seed. */
 export function nodeAt(seed: number, sec: SectorState, x: number, y: number): [number, number] {
-  if (Math.abs(x - CENTER_CELL) < 5 && Math.abs(y - CENTER_CELL) < 5) return [NODE_NONE, 0];
-  const wood = sec.richness.wood ?? 0.3, stone = sec.richness.stone ?? 0.3;
-  const ox = sec.id * 13.7, oy = seed % 97;
-  const h = hash2(x, y, seed ^ (sec.id * 7919));
-  if (fbm(x * 0.1 + ox, y * 0.1 + oy, 101) > 0.62 - 0.3 * wood && h < 0.55) return [NODE_TREE, TREE_AMOUNT];
-  if (fbm(x * 0.14 + ox, y * 0.14 + oy, 202) > 0.7 - 0.3 * stone && h > 0.5) return [NODE_STONE, STONE_AMOUNT];
-  return [NODE_NONE, 0];
+  const k = genNode(seed, sec.id, sec.richness.wood ?? 0.3, sec.richness.stone ?? 0.3, x, y, CENTER_CELL);
+  return k === NODE_TREE ? [NODE_TREE, TREE_AMOUNT] : k === NODE_STONE ? [NODE_STONE, STONE_AMOUNT] : [NODE_NONE, 0];
 }
 
 export function getSectorRt(w: SimWorld, id: number): SectorRt {
