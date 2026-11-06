@@ -58,7 +58,12 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
       <button id="join" class="sec">Приєднатися за кодом</button>
       <button id="cont" class="sec">Продовжити з сейва</button>
       <div class="err" id="err"></div>`);
-    const err = (m: string) => { q('#err').textContent = m; };
+    // Якщо екран уже замінено (напр., після входу в кімнату), повертаємось у меню, щоб показати помилку.
+    const err = (m: string) => {
+      let el = root.querySelector('#err');
+      if (!el) { menu(); el = root.querySelector('#err'); }
+      if (el) el.textContent = m;
+    };
     const name = () => { const n = q<HTMLInputElement>('#nick').value.trim() || 'Гравець'; try { localStorage.setItem('balagannuku.nick', n); } catch { /* ignore */ } return n; };
     q('#new').onclick = async () => {
       err('Створюю кімнату…');
