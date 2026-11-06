@@ -1,5 +1,5 @@
 import type { LobbyPlayer } from '../shared';
-import { ClientLobby, HostLobby, connectToRoom, isValidRoomCode, normalizeRoomCode, openRoom } from '../net';
+import { ClientLobby, HostLobby, type JoinResult, connectToRoom, isValidRoomCode, normalizeRoomCode, openRoom } from '../net';
 
 const CSS = `
 .lb{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1420;z-index:10;font-family:sans-serif;color:#eee}
@@ -17,7 +17,7 @@ export interface LobbyHandle { destroy(): void }
 export interface LobbyCallbacks {
   /** Хост натиснув «Почати»: лобі й список гравців. */
   onHostStart?: (lobby: HostLobby) => void;
-  onJoined?: (client: ClientLobby) => void;
+  onJoined?: (client: ClientLobby, res: Extract<JoinResult, { ok: true }>) => void;
 }
 
 export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
@@ -75,7 +75,7 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
         const client = new ClientLobby(conn);
         client.onLobby = (ps) => { setBox(`<h2>Кімната ${code}</h2><ul>${list(ps)}</ul><div>Чекаємо старту від хоста…</div>`); };
         const res = await client.join(code, name());
-        if (res.ok) cb.onJoined?.(client);
+        if (res.ok) cb.onJoined?.(client, res);
         else { client.close(); err(REASONS[res.reason] ?? 'Помилка входу.'); }
       } catch { err('Кімнату не знайдено або немає зв’язку.'); }
     };

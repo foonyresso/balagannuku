@@ -18,7 +18,7 @@ const newToken = (): string =>
 /** Хост-авторитетне лобі: приймає join, видає id/токени, розсилає список гравців. */
 export class HostLobby {
   private slots: Slot[] = [];
-  private snapshot: SerializedGameState | null = null;
+  private snapshot: (() => SerializedGameState) | null = null;
   onChange: (players: LobbyPlayer[]) => void = () => {};
   onMessage: (player: PlayerId, msg: ClientMessage) => void = () => {};
 
@@ -75,12 +75,12 @@ export class HostLobby {
   }
 
   private sendWelcome(slot: Slot): void {
-    if (this.snapshot && slot.conn) slot.conn.send({ t: 'welcome', player: slot.id, token: slot.token, snapshot: this.snapshot });
+    if (this.snapshot && slot.conn) slot.conn.send({ t: 'welcome', player: slot.id, token: slot.token, snapshot: this.snapshot() });
   }
 
   /** Гра стартувала: надсилає welcome усім підключеним; пізні гравці отримають його одразу. */
-  startGame(snapshot: SerializedGameState): void {
-    this.snapshot = snapshot;
+  startGame(snapshot: SerializedGameState | (() => SerializedGameState)): void {
+    this.snapshot = typeof snapshot === 'function' ? snapshot : () => snapshot;
     this.slots.forEach((s) => this.sendWelcome(s));
   }
 
