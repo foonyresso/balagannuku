@@ -30,7 +30,7 @@ export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WAL
 const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT, WALK_HOME, WORK_HOME, CARRY_PICK, CARRY_DROP, EAT, FARM_WALK, FARM_WORK } = PHASE;
 const T = (n: (typeof TASKS)[number]) => TASKS.indexOf(n);
 const WOOD = RESOURCE_KINDS.indexOf('wood'), STONE = RESOURCE_KINDS.indexOf('stone'), PLANKS = RESOURCE_KINDS.indexOf('planks');
-const FARMER = PROFESSIONS.indexOf('farmer'), FOOD = RESOURCE_KINDS.indexOf('food');
+const HUNTER = PROFESSIONS.indexOf('hunter'), FARMER = PROFESSIONS.indexOf('farmer'), FOOD = RESOURCE_KINDS.indexOf('food');
 const CARRIER = PROFESSIONS.indexOf('carrier'), SAWYER = PROFESSIONS.indexOf('sawyer'), MINER = PROFESSIONS.indexOf('miner');
 
 const isStorage = (b: BuildingState) => b.kind === 'townhall' || b.kind === 'warehouse';
@@ -297,10 +297,10 @@ function stepNpc(w: SimWorld, i: number): void {
     }
     case WORK_NODE: {
       if (--npc.timer[i] > 0) break;
-      const c = npc.aux[i], isStone = n.profession[i] === MINER;
+      const c = npc.aux[i], isStone = n.profession[i] === MINER, isGame = n.profession[i] === HUNTER; // мисливець добуває дичину (їжу) в лісі
       // Ресурс безкінечний: вузол лише «зрубується» візуально й відновлюється (regrow). По одній колоді за візит.
       rt.amount[c] = 0; rt.forest[c] = 0;
-      n.carryKind[i] = isStone ? STONE : WOOD; n.carryAmount[i]++; npc.stage[i] = 0;
+      n.carryKind[i] = isStone ? STONE : isGame ? FOOD : WOOD; n.carryAmount[i]++; npc.stage[i] = 0;
       flowEdge(w, 0, b.id, RESOURCE_KINDS[n.carryKind[i]], 1);
       npc.phase[i] = PLAN;
       break;

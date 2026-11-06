@@ -30,15 +30,16 @@ export const COSTS: Partial<Record<BuildingKind, Partial<Record<ResourceKind, nu
   sawmill: { wood: 10, stone: 5 },
   house: { planks: 5 },
   farm: { wood: 10, planks: 2 },
+  hunter: { wood: 8 },
 };
 /** Слоти працівників на будівлю. Продуктивність = частка зайнятих слотів (кожен працівник працює сам), окремої формули немає. */
-export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 2, quarry: 4, sawmill: 2, warehouse: 4, farm: 3 };
+export const MAX_WORKERS: Partial<Record<BuildingKind, number>> = { lumberjack: 2, quarry: 4, sawmill: 2, warehouse: 4, farm: 3, hunter: 2 };
 /** Типова кількість працівників: решта будівель заповнюється повністю, підсклад — лише за командою гравця. */
 export const DEFAULT_WORKERS: Partial<Record<BuildingKind, number>> = { warehouse: 0 };
 /** Ноша носія підскладу за рейс (більша за звичайну). */
 export const CARRIER_CAP = 12;
 export const JOB_OF: Partial<Record<BuildingKind, Profession>> = {
-  lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer', warehouse: 'carrier', farm: 'farmer',
+  lumberjack: 'lumberjack', quarry: 'miner', sawmill: 'sawyer', warehouse: 'carrier', farm: 'farmer', hunter: 'hunter',
 };
 
 /** Резерв дерева на складах: переробка (лісопильня) не бере й не приймає дерево, поки на складах менше. Будівництво важливіше. */
@@ -60,6 +61,7 @@ export const FOOTPRINT: Partial<Record<BuildingKind, { w: number; h: number }>> 
   sawmill: { w: 10, h: 10 },
   house: { w: 6, h: 6 },
   farm: { w: 10, h: 10 },
+  hunter: { w: 8, h: 8 },
 };
 /** Візуальний розмір у тайлах (без жорсткої колізії): NPC 2×2, дерево 3×3, камінь 4×4. */
 export const NPC_TILES = 2, TREE_TILES = 3, STONE_TILES = 4;

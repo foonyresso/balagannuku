@@ -104,7 +104,7 @@ export interface NpcStore {
 
 export const INVENTORY_SLOTS = 8;
 export const EQUIPMENT_SLOTS = 4; // голова, тіло, зброя, щит
-export const PROFESSIONS: readonly Profession[] = ['idle', 'lumberjack', 'miner', 'carrier', 'smith', 'hero', 'sawyer', 'farmer'];
+export const PROFESSIONS: readonly Profession[] = ['idle', 'lumberjack', 'miner', 'carrier', 'smith', 'hero', 'sawyer', 'farmer', 'hunter'];
 export const TASKS = ['idle', 'walk', 'work', 'carry', 'rest', 'dungeon'] as const;
 
 /** Серіалізований NpcStore: кожен typed array -> PackedArray. */
