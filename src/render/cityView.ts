@@ -2,7 +2,7 @@ import { Application, Container, Graphics } from 'pixi.js';
 import type { BuildingKind } from '../shared';
 import { SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES } from '../shared';
 import {
-  applyCommand, checkPlace, getSectorRt, nodeTile, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
+  applyCommand, checkPlace, getSectorRt, idleNpcs, slotsOf, nodeTile, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
 } from '../sim';
 import { FOOTPRINT, JOB_OF, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
 import { ISO_Y, clampCamToWorld, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
@@ -89,8 +89,7 @@ export class CityView {
       addWorker: (id) => this.addWorker(id),
       removeWorker: (id) => {
         const b = this.w.byId.get(id);
-        const npc = b?.workers[b.workers.length - 1];
-        if (npc !== undefined) this.cmd({ type: 'unassign_worker', npc });
+        if (b) this.cmd({ type: 'set_worker_count', building: id, count: Math.max(0, slotsOf(b) - 1) });
         this.refreshHud();
       },
       assign: (npc, id) => this.assignTo(npc, id),
@@ -414,9 +413,13 @@ export class CityView {
   private addWorker(id: number): void {
     const b = this.w.byId.get(id);
     if (!b) return;
-    if (staffBuilding(this.w, this.player, id, 1)) { this.refreshHud(); return; }
-    this.hud.say('Вільних жителів немає: обери робітника зі списку, щоб перевести його сюди');
-    this.hud.openTab('people'); this.hud.assignTarget = id;
+    const max = MAX_WORKERS[b.kind] ?? 0;
+    if (slotsOf(b) >= max) { this.hud.say('Це максимум працівників для цієї споруди'); return; }
+    this.cmd({ type: 'set_worker_count', building: id, count: slotsOf(b) + 1 }); // вільний місце займає автопризначення
+    if (b.workers.length < slotsOf(b) && !idleNpcs(this.w, this.player).length) {
+      this.hud.say('Вільних жителів немає: обери робітника зі списку, щоб перевести його сюди');
+      this.hud.openTab('people'); this.hud.assignTarget = id;
+    }
     this.refreshHud();
   }
   private assignTo(npc: number, id: number): void {
