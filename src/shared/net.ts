@@ -26,6 +26,7 @@ export type HostMessage =
   | { t: 'events'; tick: Tick; events: GameEvent[] } // події між знімками
   | { t: 'snapshot'; tick: Tick; state: SerializedGameState }
   | { t: 'npc_positions'; tick: Tick; /* спрощений потік для рендера; формат — packed f32 x,y + id */ data: string }
+  | { t: 'speed'; speed: number } // швидкість гри: керує хост, клієнти лише застосовують
   | { t: 'pong'; ts: number };
 
 export interface LobbyPlayer {
