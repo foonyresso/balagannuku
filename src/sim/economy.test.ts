@@ -27,7 +27,7 @@ export function setup(seed = 7): SimWorld {
 /** Тайли неактивної смуги завжди зайняті. */
 const BORDER_OCC = SECTOR_SIZE * SECTOR_SIZE - (ACTIVE_MAX_TILE - ACTIVE_MIN_TILE) ** 2;
 const OFF = SECTOR_CELLS / 2 - 32;
-type Kind = 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'house';
+type Kind = 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'farm' | 'house';
 /** Найближчий до (x0,y0) тайл, де кind можна поставити (за checkPlace). */
 const free = (w: SimWorld, kind: Kind, x0: number, y0: number) => {
   let best = { x: x0, y: y0 }, bd = Infinity;
@@ -633,5 +633,78 @@ describe('прохідність за розміром NPC', () => {
     const r2 = wall(2, 2).route;
     expect(r2).not.toBeNull();
     expect(passes(r2, 400, 2)).toBe(true);
+  });
+});
+
+describe('їжа і голод', () => {
+  const woodAfter = (fullness: number, ticks: number, food = 0) => {
+    const w = setup(5);
+    const lj = place(w, 'lumberjack', 36, 30);
+    hall(w).stock.food = food;
+    staffBuilding(w, 'p', lj.id);
+    w.state.npcs.fullness.fill(fullness);
+    run(w, ticks);
+    return { w, lj, wood: w.state.flows.total.byBuilding[lj.id]?.produced.wood ?? 0 };
+  };
+
+  it('ситість спадає з часом', () => {
+    const w = setup();
+    run(w, 600);
+    expect(w.state.npcs.fullness[0]).toBeLessThan(100);
+    expect(w.state.npcs.fullness[0]).toBeGreaterThan(40);
+  });
+
+  it('голодний NPC їсть зі складу: їжа зменшується, ситість росте, потік склад -> люди', () => {
+    const w = setup(5);
+    const lj = place(w, 'lumberjack', 36, 30);
+    staffBuilding(w, 'p', lj.id);
+    const id = lj.workers[0];
+    w.state.npcs.fullness[id] = 40;
+    const food0 = hall(w).stock.food ?? 0;
+    run(w, 400);
+    expect(w.state.npcs.fullness[id]).toBeGreaterThan(50);
+    expect(hall(w).stock.food ?? 0).toBeLessThan(food0);
+    expect(w.state.flows.total.edges[`${hall(w).id}>-1:food`] ?? 0).toBeGreaterThan(0);
+  });
+
+  it('без їжі й на нулі ситості NPC не працює', () => {
+    expect(woodAfter(100, 600).wood).toBeGreaterThan(0);
+    expect(woodAfter(0, 600).wood).toBe(0);
+  });
+
+  it('голодний (нижче порога) працює повільніше за ситого', () => {
+    expect(woodAfter(29, 300).wood).toBeLessThan(woodAfter(100, 300).wood);
+  });
+
+  it('ферма виробляє їжу й несе до складу', () => {
+    const w = setup(5);
+    const farm = place(w, 'farm', 36, 30);
+    hall(w).stock.food = 0;
+    staffBuilding(w, 'p', farm.id);
+    expect(farm.workers.length).toBeGreaterThan(0);
+    run(w, 1500);
+    expect(w.state.flows.total.byBuilding[farm.id]?.produced.food ?? 0).toBeGreaterThan(3);
+    expect(w.state.flows.total.edges[`${farm.id}>${hall(w).id}:food`] ?? 0).toBeGreaterThan(0);
+    expect(hall(w).stock.food ?? 0).toBeGreaterThan(0);
+  });
+
+  it('фермер не потрапляє в глухий кут: на нулі ситості без їжі теж працює', () => {
+    const w = setup(5);
+    const farm = place(w, 'farm', 36, 30);
+    hall(w).stock.food = 0;
+    staffBuilding(w, 'p', farm.id);
+    w.state.npcs.fullness.fill(0);
+    run(w, 1500);
+    expect(hall(w).stock.food ?? 0).toBeGreaterThan(0);
+  });
+
+  it('старий сейв без ситості завантажується з повною ситістю; міграція 8->9', () => {
+    const w = setup();
+    const old = serialize(w) as unknown as { npcs: Record<string, unknown> };
+    delete old.npcs.fullness;
+    expect(deserialize(old as never).state.npcs.fullness[0]).toBe(100);
+    w.state.npcs.fullness[0] = 33;
+    expect(deserialize(serialize(w)).state.npcs.fullness[0]).toBe(33);
+    expect(MIGRATIONS[8]({ version: 8 })).toEqual({ version: 9 });
   });
 });

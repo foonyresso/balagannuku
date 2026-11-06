@@ -10,11 +10,12 @@ export interface Resident {
   profession: string;
   workplace: number; // id будівлі або -1
   state: ResidentState;
-  /** Причина очікування (для 'waiting'): no_node, no_storage, storage_full, no_wood, no_path, paused. */
+  /** Причина очікування (для 'waiting'): no_node, no_storage, storage_full, no_wood, no_path, paused, no_food. */
   why?: string;
   carry: number; // скільки несе
   carryKind: string | null;
   processed: boolean; // несене вже оброблене
+  hunger: number; // ситість 0..100
   x: number; // тайли
   y: number;
 }
@@ -33,6 +34,9 @@ export function residents(w: SimWorld, player: string): Resident[] {
         case PHASE.WALK_HOME: state = 'to_home'; break;
         case PHASE.WORK_HOME: state = 'processing'; break;
         case PHASE.WALK_DEPOSIT: state = 'carrying'; break;
+        case PHASE.EAT: state = 'to_storage_take'; break;
+        case PHASE.FARM_WALK: state = 'to_home'; break;
+        case PHASE.FARM_WORK: state = 'working'; break;
         case PHASE.CARRY_DROP: state = 'carrying'; break;
         case PHASE.CARRY_PICK:
         case PHASE.WALK_TAKE: state = 'to_storage_take'; break;
@@ -42,7 +46,7 @@ export function residents(w: SimWorld, player: string): Resident[] {
         default: why = w.why.get(wp); state = why ? 'waiting' : 'planning'; // PLAN: мить між діями
       }
     }
-    out.push({ id: i, sector: n.sector[i], profession: PROFESSIONS[n.profession[i]], workplace: wp, state, why, carry: n.carryAmount[i], carryKind: n.carryAmount[i] ? RESOURCE_KINDS[n.carryKind[i]] : null, processed: w.npc.stage[i] === 1, x: n.x[i], y: n.y[i] });
+    out.push({ id: i, sector: n.sector[i], profession: PROFESSIONS[n.profession[i]], workplace: wp, state, why, carry: n.carryAmount[i], carryKind: n.carryAmount[i] ? RESOURCE_KINDS[n.carryKind[i]] : null, processed: w.npc.stage[i] === 1, hunger: n.fullness[i], x: n.x[i], y: n.y[i] });
   }
   return out;
 }

@@ -28,6 +28,8 @@ export interface FlowLedger {
 
 export const FLOW_WINDOW_TICKS = 100;
 export const FLOW_NATURE = 0;
+/** Населення як «споживач» у ребрах потоків (їжа: склад -> люди). */
+export const FLOW_PEOPLE = -1;
 
 export const flowEdgeKey = (from: BuildingId, to: BuildingId, kind: ResourceKind): string => `${from}>${to}:${kind}`;
 export const emptyFlowSnapshot = (): FlowSnapshot => ({ byBuilding: {}, edges: {} });

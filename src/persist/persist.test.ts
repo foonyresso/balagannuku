@@ -15,7 +15,7 @@ const mk = () => {
     profession: new Uint8Array(n), task: new Uint8Array(n), targetBuilding: new Int32Array(n).fill(-1), owner: new Uint8Array(n),
     hp: new Uint16Array(n), level: new Uint8Array(n), inventory: new Uint16Array(n * INVENTORY_SLOTS),
     equipment: new Uint16Array(n * EQUIPMENT_SLOTS), carryKind: new Uint8Array(n).fill(255), carryAmount: new Uint8Array(n),
-    nameId: new Uint16Array(n), stats: new Uint8Array(n * 4), perks: new Uint16Array(n),
+    nameId: new Uint16Array(n), stats: new Uint8Array(n * 4), perks: new Uint16Array(n), fullness: new Uint8Array(n),
   };
   const s: GameState = { ...(base as unknown as GameState), npcs };
   s.npcs.alive[0] = 1; s.npcs.x[0] = 3.5; s.npcs.targetBuilding[0] = -1; s.npcs.count = 1;

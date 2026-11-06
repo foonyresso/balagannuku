@@ -84,6 +84,7 @@ export function createNpcStore(capacity: number): NpcStore {
     inventory: new Uint16Array(capacity * 8), equipment: new Uint16Array(capacity * 4),
     carryKind: new Uint8Array(capacity).fill(255), carryAmount: new Uint8Array(capacity),
     nameId: new Uint16Array(capacity), stats: defaultStats(capacity), perks: new Uint16Array(capacity),
+    fullness: new Uint8Array(capacity).fill(100),
   };
 }
 
@@ -221,6 +222,7 @@ export function deserialize(s: SerializedGameState): SimWorld {
     npcs.stats = fresh;
   }
   if (!npcs.nameId) npcs.nameId = new Uint16Array(pn.capacity);
+  if (!npcs.fullness) npcs.fullness = new Uint8Array(pn.capacity).fill(100);
   if (!npcs.perks) npcs.perks = new Uint16Array(pn.capacity);
   const w = wrapState({ ...rest, npcs: npcs as unknown as NpcStore }, pn.capacity);
   for (const b of w.state.buildings) {
