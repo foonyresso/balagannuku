@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hexDisc } from '../sim/hex';
-import { depthOrder, hexToIso, isoToScreen, planeToIso, screenToHex, screenToPlane, zoomAt, ZOOM_MAX, ISO_Y, ISO_Z, VIEW_ANGLE_DEG, type Camera } from './projection';
+import { depthOrder, hexToIso, pickTile, tileGeometry, isoToScreen, planeToIso, screenToHex, screenToPlane, zoomAt, ZOOM_MAX, ISO_Y, ISO_Z, VIEW_ANGLE_DEG, type Camera } from './projection';
 
 const cam: Camera = { x: 400, y: 300, zoom: 1.3 };
 
@@ -37,5 +37,32 @@ describe('ізо-проєкція', () => {
   });
   it('depthOrder: нижчий рядок — ближче', () => {
     expect(depthOrder({ q: 0, r: 0 }, { q: 0, r: 1 })).toBeLessThan(0);
+  });
+});
+
+describe('пікінг у порядку малювання', () => {
+  const tiles = [
+    { id: 0, hex: { q: 0, r: 0 }, height: 20 },
+    { id: 1, hex: { q: 0, r: 1 }, height: 4 }, // ближче до глядача
+  ];
+  const c: Camera = { x: 0, y: 0, zoom: 1 };
+  it('влучання в верхню грань високого заднього сектора', () => {
+    const g = tileGeometry({ q: 0, r: 0 }, 20);
+    const cx = (g.top[0] + g.top[6]) / 2, cy = (g.top[1] + g.top[7]) / 2 - 8;
+    expect(pickTile(tiles, cx, cy, c)).toBe(0);
+  });
+  it('передній сектор перекриває стінку заднього: обирається передній', () => {
+    // точка нижче верхньої грані заднього, але на верхній грані переднього
+    const gf = tileGeometry({ q: 0, r: 1 }, 4);
+    const x = (gf.top[0] + gf.top[6]) / 2, y = (gf.top[1] + gf.top[7]) / 2;
+    expect(pickTile(tiles, x, y, c)).toBe(1);
+  });
+  it('поза картою — null', () => {
+    expect(pickTile(tiles, 5000, 5000, c)).toBeNull();
+  });
+  it('стінка високого сектора належить йому', () => {
+    const w = tileGeometry({ q: 0, r: 0 }, 20).walls[0].poly;
+    const x = (w[0] + w[2] + w[4] + w[6]) / 4, y = (w[1] + w[3] + w[5] + w[7]) / 4;
+    expect(pickTile([tiles[0]], x, y, c)).toBe(0);
   });
 });
