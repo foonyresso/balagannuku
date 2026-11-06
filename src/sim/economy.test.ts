@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../shared';
 import { RESOURCE_KINDS, SECTOR_SIZE, TrailStage } from '../shared';
 import { buildCheck, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
+import { findPath, setRoadPull } from './path';
+import { ROAD_SPEED_MULT } from '../shared';
 import { claimStart } from './worldgen';
 
 const mk = (id: string): PlayerState => ({
@@ -170,6 +172,36 @@ describe('економіка', () => {
     staffBuilding(w, 'p', lj.id);
     run(w, 100);
     expect(w.why.get(lj.id)).toBe('no_node');
+  });
+
+  it('дороги: невеликий гак до дороги вигідний, великий — ні; швидкість +10..15%', () => {
+    const S = SECTOR_SIZE;
+    const grid = (roadRow: number) => {
+      const g = { blocked: new Uint8Array(S * S), stage: new Uint8Array(S * S), forest: new Uint8Array(S * S) };
+      for (let x = 0; x < S; x++) g.stage[roadRow * S + x] = TrailStage.Paved;
+      return g;
+    };
+    const rowsOf = (p: Int16Array) => new Set(Array.from(p, (c) => Math.floor(c / S)));
+    setRoadPull(1);
+    expect(rowsOf(findPath(grid(12), 2, 10, 60, 10)!).has(12)).toBe(true); // гак 2 клітинки — іде по дорозі
+    expect(rowsOf(findPath(grid(30), 2, 10, 60, 10)!).has(30)).toBe(false); // гак 20 — напряму
+    setRoadPull(0);
+    expect(rowsOf(findPath(grid(12), 2, 10, 60, 10)!).has(12)).toBe(false); // тяги немає
+    setRoadPull(1);
+    for (const st of [TrailStage.Trampled, TrailStage.Road, TrailStage.Paved]) {
+      expect(ROAD_SPEED_MULT[st]).toBeGreaterThanOrEqual(1.1);
+      expect(ROAD_SPEED_MULT[st]).toBeLessThanOrEqual(1.15);
+    }
+  });
+
+  it('стежки не посилюються безмежно: стадія обмежена Paved', () => {
+    const w = setup();
+    for (let k = 0; k < 3; k++) staffBuilding(w, 'p', place(w, 'lumberjack', 30 + k * 3, 36).id, 2);
+    run(w, 3000);
+    const rt = w.sectors.get(0)!;
+    expect(Math.max(...rt.stage)).toBeLessThanOrEqual(TrailStage.Paved);
+    const roadCells = rt.stage.reduce((a, s) => a + (s >= TrailStage.Road ? 1 : 0), 0);
+    expect(roadCells).toBeLessThan(SECTOR_SIZE * SECTOR_SIZE * 0.25); // не весь сектор
   });
 
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {

@@ -66,14 +66,14 @@ export type PackedTrailLayer = PackedArray & { type: 'u16' };
  * Прикріплення будівель до дороги.
  * Будівля має «вхід» (клітинка). Якщо клітинка входу або сусідня має стадію ≥ Road,
  * будівля вважається прикріпленою (BuildingState.roadAttached — кеш, перераховується симуляцією).
- * Прикріплена будівля отримує бонус (напр. швидкість NPC на дорозі ×1.3, ×1.6 на вимощеній) — баланс у sim.
+ * Прикріплена будівля отримує бонус (швидкість NPC на дорозі +10…15%) — баланс у sim.
  * Дорога на 3-й стадії може стати «об'єктом» (спрайт-тайл/сегмент) — це чисто візуально/рендер,
  * симуляція оперує лише трафіком і стадією.
  */
 export const ROAD_SPEED_MULT: Record<TrailStage, number> = {
   [TrailStage.None]: 1,
-  [TrailStage.Trampled]: 1.15,
-  [TrailStage.Road]: 1.3,
-  [TrailStage.Paved]: 1.6,
+  [TrailStage.Trampled]: 1.1,
+  [TrailStage.Road]: 1.125,
+  [TrailStage.Paved]: 1.15,
 };
 export const ROAD_ATTACH_MIN_STAGE = TrailStage.Road;
