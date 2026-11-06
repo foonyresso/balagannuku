@@ -86,7 +86,7 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
       const { x, y } = cmd.cell;
       if (x < 0 || y < 0 || x >= S || y + 1 >= S) return no('invalid');
       const rt = getSectorRt(w, cmd.sector);
-      const free = (i: number) => !rt.blocked[i] && (rt.kind[i] === NODE_NONE || rt.amount[i] === 0);
+      const free = (i: number) => !rt.blocked[i] && rt.kind[i] === NODE_NONE;
       if (!free(y * S + x) || rt.blocked[(y + 1) * S + x]) return no('occupied');
       if (!w.freeBuild) {
         if (!canPay(w, player, cost)) return no('no_resources');
