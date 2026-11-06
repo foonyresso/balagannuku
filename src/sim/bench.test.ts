@@ -53,3 +53,20 @@ describe('бенчмарк симуляції', () => {
   it('500 NPC', () => { expect(bench(500, 4, 200)).toBeLessThan(100); });
   it('2000 NPC', () => { expect(bench(2000, 8, 200)).toBeLessThan(100); });
 });
+
+describe('бюджет великого сектора', () => {
+  it('створення сектора (1024×1024 тайлів), згасання стежок і сериалізація вкладаються в бюджет', () => {
+    const w = createWorld(42, [{ ...player, ownedSectors: [] }]);
+    let t0 = performance.now();
+    const rt = getSectorRt(w, 0);
+    const create = performance.now() - t0;
+    let nodes = 0;
+    for (let i = 0; i < rt.kind.length; i++) if (rt.kind[i]) nodes++;
+    t0 = performance.now();
+    for (let i = 0; i < 50; i++) stepWorld(w); // включно з одним проходом згасання
+    const steps = (performance.now() - t0) / 50;
+    console.log(`[bench] сектор ${SECTOR_SIZE}²: створення ${create.toFixed(0)} мс, вузлів ${nodes}, ${steps.toFixed(2)} мс/тік`);
+    expect(create).toBeLessThan(1500);
+    expect(steps).toBeLessThan(50);
+  });
+});

@@ -20,7 +20,7 @@ const RAD = (VIEW_ANGLE_DEG * Math.PI) / 180;
 export const ISO_Y = Math.sin(RAD);
 /** Масштаб висоти (вертикалі): cos(кута). */
 export const ISO_Z = Math.cos(RAD);
-export const ZOOM_MIN = 0.25;
+export const ZOOM_MIN = 0.08;
 export const ZOOM_MAX = 3;
 
 export interface Camera {

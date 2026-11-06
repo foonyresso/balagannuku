@@ -7,7 +7,7 @@ import { NODEGEN } from './nodegen';
 function freeShare(r: number, seeds: number[]): number {
   let free = 0, total = 0;
   for (const seed of seeds) {
-    for (const sec of generateSectors(seed, 3)) {
+    for (const sec of generateSectors(seed, 1).slice(0, 3)) {
       for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) {
         if (Math.hypot(x - CENTER_CELL, y - CENTER_CELL) > r) continue;
         total++;
@@ -29,9 +29,22 @@ describe('генерація вузлів: вільний майданчик', (
   it('навколо старту (радіус 32) вільно ≥ 85%', () => {
     expect(freeShare(32, seeds)).toBeGreaterThan(0.85);
   });
-  it('далі ресурси є, але лишаються групами: зайнято 3–40% сектора', () => {
+  it('далі ресурси є, але рідко: зайнято 1–15% сектора', () => {
     const occupied = 1 - freeShare(C, seeds);
-    expect(occupied).toBeGreaterThan(0.03);
-    expect(occupied).toBeLessThan(0.4);
+    expect(occupied).toBeGreaterThan(0.01);
+    expect(occupied).toBeLessThan(0.15);
+  });
+  it('у радіусі роботи (64) від ратуші є і дерева, і камінь для кожного сіда', () => {
+    for (const seed of seeds) {
+      const sec = generateSectors(seed, 1)[0];
+      let trees = 0, stones = 0;
+      for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) {
+        if (Math.hypot(x - CENTER_CELL, y - CENTER_CELL) > 64) continue;
+        const k = nodeAt(seed, sec, x, y)[0];
+        if (k === 1) trees++; else if (k === 2) stones++;
+      }
+      expect(trees).toBeGreaterThan(50);
+      expect(stones).toBeGreaterThan(20);
+    }
   });
 });

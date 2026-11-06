@@ -2,10 +2,10 @@ import { ROAD_SPEED_MULT, SECTOR_CELLS, TrailStage } from '../shared';
 import { ROAD_PULL } from './balance';
 
 const S = SECTOR_CELLS, N = S * S; // A* — по грубій сітці клітинок навігації, не по тайлах
-const g = new Float32Array(N), from = new Int16Array(N); // N ≤ 4096 < 32767
+const g = new Float32Array(N), from = new Int32Array(N); // N = SECTOR_CELLS² (до ~4 млн), тож Int32
 const seen = new Uint32Array(N), closed = new Uint32Array(N);
 const HCAP = N * 9;
-const hf = new Float32Array(HCAP), hi = new Int16Array(HCAP);
+const hf = new Float32Array(HCAP), hi = new Int32Array(HCAP);
 let hn = 0, stamp = 0;
 /** Вартість входу в клітинку за стадією стежки (залежить від ROAD_PULL). */
 const STAGE_COST = new Float32Array(4);
@@ -49,9 +49,9 @@ export interface PathGrid {
  * Один A* на ПОДОРОЖ (не на крок). Вартість клітинки: стежки дешевші (ROAD_SPEED_MULT), ліс дорожчий.
  * Повертає КЛІТИНКИ навігації від старту (виключно) до цілі (включно), або null. Ціль може бути «заблокованою» (вхід).
  */
-export function findPath(grid: PathGrid, sx: number, sy: number, gx: number, gy: number): Int16Array | null {
+export function findPath(grid: PathGrid, sx: number, sy: number, gx: number, gy: number): Int32Array | null {
   const start = sy * S + sx, goal = gy * S + gx;
-  if (start === goal) return new Int16Array(0);
+  if (start === goal) return new Int32Array(0);
   stamp++;
   hn = 0;
   g[start] = 0; seen[start] = stamp; from[start] = -1;
@@ -84,7 +84,7 @@ export function findPath(grid: PathGrid, sx: number, sy: number, gx: number, gy:
   if (!found) return null;
   let len = 0;
   for (let c = goal; c !== start; c = from[c]) len++;
-  const out = new Int16Array(len);
+  const out = new Int32Array(len);
   for (let c = goal, k = len - 1; c !== start; c = from[c]) out[k--] = c;
   return out;
 }

@@ -7,8 +7,8 @@ export const SIM_TICK_HZ = 10;
  * а рух і стежки — по тайлах. Зміна цих констант змінює формат сейва (SAVE_VERSION).
  */
 export const TILES_PER_CELL = 4;
-export const SECTOR_CELLS = 64; // клітинок навігації на сторону сектора
-export const SECTOR_SIZE = SECTOR_CELLS * TILES_PER_CELL; // ТАЙЛІВ на сторону сектора (256)
+export const SECTOR_CELLS = 256; // клітинок навігації на сторону сектора (розмір світу: міняй тут і піднімай SAVE_VERSION)
+export const SECTOR_SIZE = SECTOR_CELLS * TILES_PER_CELL; // ТАЙЛІВ на сторону сектора (1024)
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 export const MIN_START_DISTANCE = 8; // у секторах (параметр, мін. 4–5)
