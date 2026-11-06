@@ -7,6 +7,7 @@ import { mountLobby } from './ui';
 import { ClientSession, HostSession, mkPlayer, type MapState } from './net';
 import { CityView } from './render/cityView';
 import { startCity, wrapState, type SimWorld } from './sim';
+import { mountSaveMenu, SaveController, takeLoaded, type LoadedGame } from './persist';
 
 declare global { interface Window { __appStarted?: boolean; __showError?: (where: string, e: unknown) => void } }
 window.__appStarted = true;
@@ -21,6 +22,10 @@ try {
 } catch (e) { showError('лобі', e); }
 
 let me = 'p1';
+/** Робочий світ міста (симуляція). Із сейва приходить уже готовим. */
+let sim: SimWorld | null = null;
+let graphicsReady = false;
+let autoEnter = false;
 let netRole: 'solo' | 'host' | 'client' = 'solo';
 let host: HostSession | null = null;
 let client: ClientSession | null = null;
@@ -46,9 +51,13 @@ function startHost(hl: import('./net').HostLobby, loaded?: MapState): void {
   state = loaded ?? createInitialState(state.world.seed, DEFAULT_WORLD_RADIUS, minDist, players);
   me = hl.hostPlayer;
   netRole = 'host';
+  const g = loaded && takeLoaded(loaded as never);
+  if (g) { sim = g.world; gameSpeed = g.speed; } // «Продовжити»: світ і швидкість зі сейва
   host = new HostSession(hl, state);
+  host.setSpeed(gameSpeed);
   host.onChange = () => onSession();
   onSession();
+  if (g) { if (graphicsReady) enterCityNow(); else autoEnter = true; }
 }
 
 function startClient(cl: import('./net').ClientLobby, snap: MapState, player: string): void {
@@ -154,9 +163,8 @@ function placeBot(): void {
 
 // Місто домашнього сектора. Поки кожен гравець симулює своє місто локально (синхронізація економіки — пізніше).
 let city: CityView | null = null;
-let sim: SimWorld | null = null;
 const cityBtn = $<HTMLButtonElement>('enterCity');
-const exitCity = () => { city?.destroy(); city = null; cityRef = null; view.world.visible = true; $('hud').style.display = ''; };
+const exitCity = () => { city?.destroy(); city = null; cityRef = null; view.world.visible = true; $('hud').style.display = ''; saveUi.refresh(); };
 enterCityNow = () => {
   const home = myPlayer()?.homeSector;
   if (home === null || home === undefined || city) return;
@@ -167,6 +175,7 @@ enterCityNow = () => {
     startCity(sim, me);
   }
   view.world.visible = false; tip.style.display = 'none'; $('hud').style.display = 'none';
+  saveUi.refresh();
   city = new CityView(app, sim, me, home, exitCity, {
     locked: netRole === 'client', speed: gameSpeed,
     onSpeed: (v) => { gameSpeed = v; host?.setSpeed(v); },
@@ -219,8 +228,30 @@ try { ui.value = localStorage.getItem('uiScale') ?? '1'; } catch { /* ignore */ 
 ui.oninput = applyScale;
 applyScale();
 
+// Збереження: автосейв в IndexedDB за таймером, кнопка «Збереження» (файл/завантаження). Зберігає лише хост.
+const ctl = new SaveController({ world: () => sim, speed: () => gameSpeed, canSave: () => netRole !== 'client' });
+const loadFromFile = async () => {
+  const g: LoadedGame | null = await ctl.importFile();
+  if (!g) return;
+  if (netRole === 'client') throw new Error('Завантажує лише хост гри');
+  if (!g.world.state.players.some((p) => p.id === me)) throw new Error('Цей сейв від іншої гри (інші гравці). Онови сторінку й завантаж його з головного меню.');
+  exitCity();
+  Object.assign(state, g.world.state); // та сама адреса: на неї дивляться карта й сесія хоста
+  g.world.state = state as never;
+  sim = g.world;
+  gameSpeed = g.speed;
+  host?.setSpeed(gameSpeed);
+  onSession();
+  enterCityNow();
+};
+const saveUi = mountSaveMenu(ctl, { onLoad: loadFromFile, visible: () => netRole !== 'client' && !!sim && sim.state.buildings.length > 0 });
+ctl.start();
+(window as unknown as { __game?: unknown }).__game = { ctl, get sim() { return sim; }, get state() { return state; }, get speed() { return gameSpeed; } };
+
 reset();
 onSession();
+graphicsReady = true;
+if (autoEnter) { autoEnter = false; enterCityNow(); }
 app.renderer.on('resize', () => view.redraw());
 } catch (e) { showError('карта', e); }
 }

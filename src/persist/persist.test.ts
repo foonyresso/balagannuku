@@ -1,58 +1,127 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
-import { EQUIPMENT_SLOTS, INVENTORY_SLOTS, MIGRATIONS, SAVE_VERSION, type GameState, type NpcStore } from '../shared';
+import { RESOURCE_KINDS, SAVE_VERSION, SECTOR_SIZE, type PlayerState } from '../shared';
 import { HostLobby } from '../net';
-import { createInitialState } from '../sim/worldgen';
-import { createSave, decodeSave, encodeSave, loadState } from './index';
+import { applyCommand, checkPlace, createWorld, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from '../sim';
+import { claimStart } from '../sim/worldgen';
+import { COMPACT_NODEGEN, configureNodegen } from '../sim/nodegen';
+import { AUTOSAVE_INTERVAL_MS, SaveController, SaveError, autosave, autosaveInfo, createSave, decodeSave, encodeSave, loadAutosave, loadGame, loadState, takeLoaded } from './index';
 
-const mk = () => {
-  const base = createInitialState(42, 3, 2, [
-    { id: 'p1', nickname: 'A', token: 'tok1', color: 1, homeSector: null, ownedSectors: [], resources: {} as never },
-    { id: 'p2', nickname: 'B', token: 'tok2', color: 2, homeSector: null, ownedSectors: [], resources: {} as never },
-  ]);
-  const n = 4;
-  const npcs: NpcStore = {
-    capacity: n, count: 1, alive: new Uint8Array(n), sector: new Uint16Array(n), x: new Float32Array(n), y: new Float32Array(n),
-    profession: new Uint8Array(n), task: new Uint8Array(n), targetBuilding: new Int32Array(n).fill(-1), owner: new Uint8Array(n),
-    hp: new Uint16Array(n), level: new Uint8Array(n), inventory: new Uint16Array(n * INVENTORY_SLOTS),
-    equipment: new Uint16Array(n * EQUIPMENT_SLOTS), carryKind: new Uint8Array(n).fill(255), carryAmount: new Uint8Array(n),
-    nameId: new Uint16Array(n), stats: new Uint8Array(n * 4), perks: new Uint16Array(n), fullness: new Uint8Array(n),
-  };
-  const s: GameState = { ...(base as unknown as GameState), npcs };
-  s.npcs.alive[0] = 1; s.npcs.x[0] = 3.5; s.npcs.targetBuilding[0] = -1; s.npcs.count = 1;
-  return s;
-};
+const mkp = (id: string): PlayerState => ({
+  id, nickname: id, token: 't' + id, color: 1, homeSector: null, ownedSectors: [],
+  resources: Object.fromEntries(RESOURCE_KINDS.map((k) => [k, 0])) as PlayerState['resources'],
+});
 
-describe('save', () => {
-  it('roundtrip gzip і без', async () => {
-    const s = mk();
+/** Світ із містом: ратуша, лісоруб із працівником, трохи тіків (стежки, потоки, залишки вузлів). */
+function mkWorld(seed = 7): SimWorld {
+  configureNodegen(COMPACT_NODEGEN);
+  const w = createWorld(seed, [mkp('p')]);
+  expect(claimStart(w.state, 'p', 0).ok).toBe(true);
+  startCity(w, 'p');
+  const c = SECTOR_SIZE / 2;
+  let best: { x: number; y: number } | null = null, bd = Infinity;
+  for (let y = c - 120; y < c + 120; y += 2) for (let x = c - 120; x < c + 120; x += 2) {
+    const d = Math.abs(x - c - 40) + Math.abs(y - c);
+    if (d < bd && checkPlace(w, 0, 'lumberjack', x, y) === null) { bd = d; best = { x, y }; }
+  }
+  const r = applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'place_building', kind: 'lumberjack', sector: 0, cell: best! } });
+  expect(r.ok).toBe(true);
+  staffBuilding(w, 'p', w.state.buildings[w.state.buildings.length - 1].id);
+  for (let i = 0; i < 300; i++) stepWorld(w);
+  return w;
+}
+
+const text = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+describe('сейв', () => {
+  const w = mkWorld();
+
+  it('round-trip: збережене = завантажене (gzip і без), разом зі швидкістю', async () => {
     for (const gz of [true, false]) {
-      const back = loadState(await decodeSave(await encodeSave(createSave(s), gz)));
-      expect(JSON.stringify(back.players)).toBe(JSON.stringify(s.players));
-      expect(back.sectors.length).toBe(s.sectors.length);
-      expect(back.npcs.x[0]).toBe(3.5);
-      expect(back.npcs.targetBuilding[0]).toBe(-1);
-      expect(back.npcs.x).toBeInstanceOf(Float32Array);
-      expect(back.world).toEqual(s.world);
+      const g = loadGame(await decodeSave(await encodeSave(createSave(w, { speed: 4 }), gz)));
+      expect(g.speed).toBe(4);
+      expect(JSON.stringify(serialize(g.world))).toBe(JSON.stringify(serialize(w)));
+      expect(g.world.state.tick).toBe(w.state.tick);
+      expect(g.world.state.npcs.x).toBeInstanceOf(Float32Array);
+      const nid = w.state.npcs.alive.findIndex((a) => a === 1);
+      expect(g.world.state.npcs.nameId[nid]).toBe(w.state.npcs.nameId[nid]);
+      expect([...g.world.state.npcs.stats]).toEqual([...w.state.npcs.stats]);
+      expect(g.world.state.flows).toEqual(w.state.flows);
     }
   });
-  it('міграція зі старої версії', async () => {
-    const old = { ...createSave(mk()), version: SAVE_VERSION };
-    const orig = MIGRATIONS[SAVE_VERSION];
-    MIGRATIONS[SAVE_VERSION] = (o) => ({ ...(o as object), version: SAVE_VERSION + 1, migrated: true });
-    try {
-      const raw = { ...old, version: SAVE_VERSION };
-      // емулюємо «нову» поточну версію через ручний виклик migrateSave
-      const { migrateSave } = await import('../shared');
-      expect(() => migrateSave({ version: SAVE_VERSION + 5 })).toThrow();
-      expect(raw.version).toBe(SAVE_VERSION);
-    } finally { if (orig) MIGRATIONS[SAVE_VERSION] = orig; else delete MIGRATIONS[SAVE_VERSION]; }
+
+  it('після завантаження гра йде далі без помилок, працівники на місцях', async () => {
+    const g = loadGame(await decodeSave(await encodeSave(createSave(w))));
+    const jobs = g.world.state.buildings.flatMap((b) => b.workers);
+    expect(jobs.length).toBeGreaterThan(0);
+    for (const id of jobs) expect(g.world.npc.workplace[id]).toBeGreaterThanOrEqual(0);
+    const t = g.world.state.tick;
+    for (let i = 0; i < 100; i++) stepWorld(g.world);
+    expect(g.world.state.tick).toBe(t + 100);
   });
-  it('відхиляє сміття', async () => {
-    await expect(decodeSave(new TextEncoder().encode('hello'))).rejects.toThrow();
-    await expect(decodeSave(new TextEncoder().encode('{"magic":"x"}'))).rejects.toThrow();
+
+  it('старий сейв без швидкості йде на 1×; loadState/takeLoaded для лобі', async () => {
+    const save = await decodeSave(await encodeSave(createSave(w, { speed: 2 })));
+    delete save.speed;
+    expect(loadGame(save).speed).toBe(1);
+    const st = loadState(save);
+    expect(takeLoaded(st)?.world.state).toBe(st);
   });
+
+  it('несумісні сейви: чесні повідомлення', async () => {
+    const base = JSON.parse(JSON.stringify(createSave(mkWorld(3)))) as { version: number };
+    const enc = (o: unknown) => new TextEncoder().encode(JSON.stringify(o));
+    const fail = async (v: number) => { try { await decodeSave(enc({ ...base, version: v })); return ''; } catch (e) { expect(e).toBeInstanceOf(SaveError); return text(e); } };
+    expect(await fail(SAVE_VERSION + 1)).toContain('новішою');
+    expect(await fail(0)).toContain('почни нову гру');
+    expect(await fail(2)).toContain('почни нову гру'); // з містом старого формату
+    expect(await fail(7)).toContain('почни нову гру');
+  });
+
+  it('відхиляє сміття і недописаний сейв', async () => {
+    await expect(decodeSave(new TextEncoder().encode('hello'))).rejects.toThrow(SaveError);
+    await expect(decodeSave(new TextEncoder().encode('{"magic":"x"}'))).rejects.toThrow('не сейв');
+    await expect(decodeSave(new TextEncoder().encode(`{"magic":"balagannuku-save","version":${SAVE_VERSION}}`))).rejects.toThrow('пошкоджений');
+    await expect(decodeSave(new Uint8Array([0x1f, 0x8b, 1, 2, 3]))).rejects.toThrow(SaveError);
+  });
+
+  it('IndexedDB: автосейв, інфо, попередня копія як запасна', async () => {
+    expect(await loadAutosave()).toBeNull();
+    const r1 = await autosave(w, 2);
+    expect(r1.ok).toBe(true);
+    const info = await autosaveInfo();
+    expect(info?.tick).toBe(w.state.tick);
+    const back = await loadAutosave();
+    expect(back?.speed).toBe(2);
+    expect(JSON.stringify(loadGame(back!).world.state.players)).toBe(JSON.stringify(w.state.players));
+    // другий запис; ушкоджуємо основний — лишається попередній
+    for (let i = 0; i < 10; i++) stepWorld(w);
+    await autosave(w, 1);
+    const db = await new Promise<IDBDatabase>((res) => { const r = indexedDB.open('balagannuku', 1); r.onsuccess = () => res(r.result); });
+    await new Promise<void>((res) => { const t = db.transaction('saves', 'readwrite'); t.objectStore('saves').put(new Uint8Array([1, 2, 3]), 'autosave'); t.oncomplete = () => res(); });
+    db.close();
+    const prev = await loadAutosave();
+    expect(prev?.speed).toBe(2);
+    expect(prev!.state.tick).toBe(info!.tick);
+  });
+
+  it('контролер: автосейв пропускає без змін, гість не зберігає, помилки в статусі', async () => {
+    let canSave = true;
+    const ctl = new SaveController({ world: () => w, speed: () => 1, canSave: () => canSave }, AUTOSAVE_INTERVAL_MS);
+    const msgs: string[] = [];
+    ctl.onStatus = (s) => msgs.push((s.error ? '!' : '') + s.text);
+    expect(await ctl.saveNow()).toBe(true);
+    expect(await ctl.auto().then(() => false)).toBe(false); // той самий тік
+    stepWorld(w);
+    await ctl.auto();
+    expect(msgs.length).toBe(2);
+    canSave = false;
+    expect(await ctl.saveNow()).toBe(false);
+    expect(msgs[msgs.length - 1]).toMatch(/^!.*хост/);
+  });
+
   it('токени гравців зберігаються у слотах лобі', () => {
-    const l = HostLobby.fromPlayers('ABCDE', mk().players);
+    const l = HostLobby.fromPlayers('ABCDE', [mkp('p1'), mkp('p2')]);
     expect(l.players().map((p) => p.id)).toEqual(['p1', 'p2']);
     expect(l.players()[1].online).toBe(false);
   });

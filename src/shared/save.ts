@@ -12,6 +12,8 @@ export interface SaveFile {
   savedAt: string; // ISO
   gameVersion: string;
   compression: 'none' | 'gzip'; // gzip — на рівні файлу, цей заголовок завжди JSON-читабельний
+  /** Швидкість гри на момент збереження (0 = пауза). Необов'язкове: старі сейви без нього йдуть на 1×. */
+  speed?: number;
   state: SerializedGameState;
 }
 
