@@ -2,7 +2,7 @@ import { Application, Container, Graphics } from 'pixi.js';
 import type { BuildingKind } from '../shared';
 import { SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES } from '../shared';
 import {
-  applyCommand, buildCheck, checkPlace, getSectorRt, nodeTile, ratePerSec, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
+  applyCommand, buildCheck, checkPlace, residents, getSectorRt, nodeTile, ratePerSec, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
 } from '../sim';
 import { COSTS, FOOTPRINT, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
 import { planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
@@ -29,6 +29,13 @@ const lighten = (c: number): number => {
 const WHY: Record<string, string> = {
   no_node: 'немає дерев/каменю в секторі', no_storage: 'немає куди віднести (склад?)', storage_full: 'склад повний',
   no_wood: 'немає вільного дерева (резерв під будівництво)', no_path: 'немає шляху', paused: 'на паузі',
+};
+const STATE_TXT: Record<string, string> = {
+  free: 'вільний', to_node: 'іде до дерева/каменю', working: 'працює', carrying: 'несе ресурс', to_storage_take: 'іде по колоди',
+  to_mill: 'несе колоди на пилораму', milling: 'пиляє', waiting: 'чекає', no_path: 'немає шляху',
+};
+const PROF_TXT: Record<string, string> = {
+  idle: 'без роботи', lumberjack: 'лісоруб', miner: 'каменяр', sawyer: 'пильщик', carrier: 'носій', smith: 'коваль', hero: 'герой',
 };
 const PROF_COLORS = [0xeeeeee, 0x66bb6a, 0xbdbdbd, 0x90caf9, 0xff8a65, 0xba68c8, 0xffcc80];
 
@@ -144,7 +151,7 @@ export class CityView {
       return `<button data-k="${k}">${BUILD_NAMES[k]} <small>(${cost})</small></button>`;
     }).join('');
     this.panel.innerHTML = `<h2>Місто</h2><div id="cityRes"></div><div class="btns">${btns}</div>` +
-      `<div id="cityMsg">Обери будівлю й клікни по землі</div><div id="cityFlow"></div><button id="cityBack">← До карти</button>`;
+      `<div id="cityMsg">Обери будівлю й клікни по землі</div><div id="cityFlow"></div><details id="cityPeople"><summary id="cityPeopleSum">Жителі</summary><pre id="cityPeopleList"></pre></details><button id="cityBack">← До карти</button>`;
     this.panel.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((b) => {
       b.onclick = () => { this.selected = b.dataset.k as BuildingKind; this.markSel(); };
     });
@@ -272,6 +279,7 @@ export class CityView {
     this.panel.querySelector('#cityRes')!.innerHTML =
       Object.entries(RES_NAMES).map(([k, name]) => `${name}: <b>${p.resources[k as 'wood']}</b>`).join(' · ') +
       `<br>Жителів: <b>${this.w.state.npcs.count}</b>, вільних: <b>${idle}</b>`;
+    this.updateResidents();
     this.panel.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((btn) => {
       const k = btn.dataset.k as BuildingKind, c = buildCheck(this.w, this.player, k);
       btn.classList.toggle('no', !c.ok);
@@ -305,6 +313,26 @@ export class CityView {
       r.text.classList.toggle('bad', starved > 20);
       if (r.btn) { const l = b.paused ? '▶ Пуск' : '⏸ Пауза'; if (r.btn.textContent !== l) r.btn.textContent = l; }
     }
+  }
+
+  /** Стан кожного жителя: зведення в заголовку, список — у <pre> (текст оновлюється на місці). */
+  private updateResidents(): void {
+    const list = residents(this.w, this.player);
+    const cnt = new Map<string, number>();
+    for (const r of list) cnt.set(r.state, (cnt.get(r.state) ?? 0) + 1);
+    const sum = [...cnt].map(([k, v]) => `${STATE_TXT[k]}: ${v}`).join(', ');
+    const el = this.panel.querySelector('#cityPeopleSum')!;
+    const head = `Жителі (${list.length}): ${sum}`;
+    if (el.textContent !== head) el.textContent = head;
+    const det = this.panel.querySelector('#cityPeople') as HTMLDetailsElement;
+    if (!det.open) return;
+    const txt = list.slice(0, 60).map((r) => {
+      const where = r.workplace >= 0 ? ` #${r.workplace}` : '';
+      const why = r.why && r.state === 'waiting' ? ` (${WHY[r.why] ?? r.why})` : '';
+      return `#${r.id} ${PROF_TXT[r.profession] ?? r.profession}${where}: ${STATE_TXT[r.state]}${why}`;
+    }).join('\n');
+    const pre = this.panel.querySelector('#cityPeopleList')!;
+    if (pre.textContent !== txt) pre.textContent = txt;
   }
 
   destroy(): void {
