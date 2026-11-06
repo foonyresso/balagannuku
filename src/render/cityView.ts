@@ -2,7 +2,7 @@ import { Application, Container, Graphics } from 'pixi.js';
 import type { BuildingKind } from '../shared';
 import { SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES } from '../shared';
 import {
-  applyCommand, checkPlace, getSectorRt, idleNpcs, slotsOf, nodeTile, staffBuilding, stepWorld, NODE_STONE, NODE_TREE, type SimWorld,
+  applyCommand, checkPlace, getSectorRt, idleNpcs, slotsOf, nodeTile, staffBuilding, stepWorld, NODE_TREE, type SimWorld,
 } from '../sim';
 import { FOOTPRINT, JOB_OF, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
 import { ISO_Y, clampCamToWorld, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
@@ -20,8 +20,10 @@ const CITY_ZOOM_MAX = 10;
 const FOLLOW_ZOOM = 3.5;
 /** Висота будівель (одиниці площини); ширина/глибина — з footprint у тайлах. */
 const BUILD_H: Record<string, number> = { townhall: 30, warehouse: 18, lumberjack: 16, quarry: 14, sawmill: 22, house: 18 };
-const NB = 256; // шарів глибини на сектор (стала кількість Graphics незалежно від розміру сектора)
-const BUCKET = SECTOR_SIZE / NB; // тайлів на шар глибини
+// Шар глибини = один ряд клітинок (BUCKET = TILES_PER_CELL тайлів): вузол клітинки cy завжди лягає в шар cy,
+// тож зміну вузлів у рядку можна перемалювати одним шаром.
+const NB = SECTOR_CELLS;
+const BUCKET = SECTOR_SIZE / NB;
 
 const STAGE_COLORS = [0, 0x5a4a30, 0x8a7448, 0xb8b0a0];
 const BUILD_COLORS: Record<string, number> = {
@@ -58,14 +60,14 @@ export class CityView {
   private hover: Tile | null = null;
   private cam: Camera;
   private drag: { x: number; y: number; moved: boolean; button: number } | null = null;
-  private rows: Obj[][] = [];
+  private rows: Obj[][] = Array.from({ length: NB }, () => []);
   private groundDirty = true;
 
   constructor(private app: Application, private w: SimWorld, private player: string, private sector: number, private onExit: () => void,
     private net: { locked?: boolean; speed?: number; onSpeed?: (s: number) => void } = {}) {
     if (isSpeed(net.speed)) this.speed = net.speed;
     // Сусідні сектори (ландшафт): ряд над домашнім і по боках — під землею, ряд під ним — поверх шарів.
-    this.surroundings = new Surroundings(app.renderer, w.state.world.seed, w.state.sectors[sector], (dx, dy) => this.neighbourSector(dx, dy));
+    this.surroundings = new Surroundings(app.renderer, w.state.world.seed, w.state.sectors[sector]);
     this.root.addChild(this.surroundings.back);
     this.root.addChild(this.ground);
     for (let r = 0; r < NB; r++) {
@@ -114,13 +116,6 @@ export class CityView {
 
   private clock = new TickClock();
   private surroundings: Surroundings;
-  /** Багатство сусіднього сектора: сусідній гекс карти за напрямом (або домашній, якщо гекса немає). */
-  private neighbourSector(dx: number, dy: number) {
-    const secs = this.w.state.sectors, home = secs[this.sector];
-    const hit = secs.find((s) => s.hex.q === home.hex.q + dx && s.hex.r === home.hex.r + dy);
-    return hit ?? home;
-  }
-
   private applyCam(): void {
     this.cam = clampCamToWorld(this.cam, this.app.screen.width, this.app.screen.height, Surroundings.bounds());
     this.root.position.set(this.cam.x, this.cam.y);
@@ -289,50 +284,44 @@ export class CityView {
     this.groundDirty = false;
   }
 
-  /** Об'єкти (дерева, камінь, будівлі) по шарах глибини; висота й розмір — з footprint/розмірів у тайлах. */
-  private rebuild(): void {
-    const rt = getSectorRt(this.w, this.sector), seed = this.w.state.world.seed;
-    if (this.groundDirty) this.rebuildGround();
-    this.lastSig = this.signature();
-    this.rows = Array.from({ length: NB }, () => []);
-    const bucket = (ty: number) => Math.min(NB - 1, Math.max(0, Math.floor(ty / BUCKET)));
-    for (let cy = 0; cy < SECTOR_CELLS; cy++) {
-      for (let cx = 0; cx < SECTOR_CELLS; cx++) {
-        const i = cy * SECTOR_CELLS + cx;
-        const kind = rt.kind[i];
-        if (!kind) continue;
-        const nt = nodeTile(seed, this.sector, cx, cy), grown = rt.amount[i] > 0;
-        const px = (nt.x + 0.5) * TILE, py = (nt.y + 0.5) * TILE, tile = { x: nt.x, y: nt.y };
-        const base = planeToIso(px, py, 0);
-        if (kind === NODE_TREE) {
-          const rad = (TREE_TILES * TILE) / 2, top = planeToIso(px, py, 22);
-          this.rows[bucket(nt.y)].push({
-            tile, sel: grown ? { t: 'node', cx, cy } : null,
-            pick: grown ? [top.x - rad, top.y - rad, top.x + rad, top.y - rad, base.x + rad / 2, base.y + 2, base.x - rad / 2, base.y + 2] : null,
-            draw: (gr) => {
-              if (!grown) { gr.ellipse(base.x, base.y, 3, 2).fill(0x5d4037); return; }
-              const mid = planeToIso(px, py, 9);
-              gr.rect(mid.x - 1.5, mid.y, 3, base.y - mid.y).fill(0x5d4037);
-              gr.ellipse(top.x, top.y + 3, rad, rad * 1.25).fill(0x1b5e20);
-            },
-          });
-        } else if (kind === NODE_STONE) {
-          const rw = (STONE_TILES * TILE) / 2;
-          this.rows[bucket(nt.y)].push({
-            tile, sel: { t: 'node', cx, cy },
-            pick: [base.x - rw, base.y - rw * 0.9, base.x + rw, base.y - rw * 0.9, base.x + rw, base.y + 2, base.x - rw, base.y + 2],
-            draw: (gr) => { gr.ellipse(base.x, base.y - (grown ? 3 : 1), grown ? rw : rw * 0.6, grown ? rw * 0.7 : rw * 0.35).fill(grown ? 0x78787f : 0x55555a); },
-          });
-        }
-      }
+  /** Об'єкт-вузол ресурсу в клітинці (cx, cy) або null. Рядок шару глибини — bucket(nt.y). */
+  private nodeObj(rt: ReturnType<typeof getSectorRt>, seed: number, cx: number, cy: number): { row: number; obj: Obj } | null {
+    const i = cy * SECTOR_CELLS + cx, kind = rt.kind[i];
+    if (!kind) return null;
+    const nt = nodeTile(seed, this.sector, cx, cy), grown = rt.amount[i] > 0;
+    const px = (nt.x + 0.5) * TILE, py = (nt.y + 0.5) * TILE, tile = { x: nt.x, y: nt.y };
+    const base = planeToIso(px, py, 0);
+    const row = Math.min(NB - 1, Math.max(0, Math.floor(nt.y / BUCKET)));
+    if (kind === NODE_TREE) {
+      const rad = (TREE_TILES * TILE) / 2, top = planeToIso(px, py, 22);
+      return { row, obj: {
+        tile, sel: grown ? { t: 'node', cx, cy } : null,
+        pick: grown ? [top.x - rad, top.y - rad, top.x + rad, top.y - rad, base.x + rad / 2, base.y + 2, base.x - rad / 2, base.y + 2] : null,
+        draw: (gr) => {
+          if (!grown) { gr.ellipse(base.x, base.y, 3, 2).fill(0x5d4037); return; }
+          const mid = planeToIso(px, py, 9);
+          gr.rect(mid.x - 1.5, mid.y, 3, base.y - mid.y).fill(0x5d4037);
+          gr.ellipse(top.x, top.y + 3, rad, rad * 1.25).fill(0x1b5e20);
+        },
+      } };
     }
+    const rw = (STONE_TILES * TILE) / 2;
+    return { row, obj: {
+      tile, sel: { t: 'node', cx, cy },
+      pick: [base.x - rw, base.y - rw * 0.9, base.x + rw, base.y - rw * 0.9, base.x + rw, base.y + 2, base.x - rw, base.y + 2],
+      draw: (gr) => { gr.ellipse(base.x, base.y - (grown ? 3 : 1), grown ? rw : rw * 0.6, grown ? rw * 0.7 : rw * 0.35).fill(grown ? 0x78787f : 0x55555a); },
+    } };
+  }
+
+  private buildingObjs(rt: ReturnType<typeof getSectorRt>): { row: number; obj: Obj }[] {
+    const out: { row: number; obj: Obj }[] = [];
     for (const b of rt.buildings) {
       const h = BUILD_H[b.kind] ?? 16, col = BUILD_COLORS[b.kind] ?? 0xffffff;
       const x0 = b.cell.x * TILE, y0 = b.cell.y * TILE, bw = b.size.w * TILE, bh = b.size.h * TILE;
       const top = this.quad(b.cell.x, b.cell.y, b.size.w, b.size.h, h);
       const front = [planeToIso(x0, y0 + bh, h), planeToIso(x0 + bw, y0 + bh, h), planeToIso(x0 + bw, y0 + bh, 0), planeToIso(x0, y0 + bh, 0)].flatMap((v) => [v.x, v.y]);
       const pick = [top[0], top[1], top[2], top[3], front[4], front[5], front[6], front[7]]; // силует: верх + фасад
-      this.rows[bucket(b.cell.y + b.size.h - 1)].push({
+      out.push({ row: Math.min(NB - 1, Math.max(0, Math.floor((b.cell.y + b.size.h - 1) / BUCKET))), obj: {
         tile: b.cell, pick, sel: { t: 'building', id: b.id },
         draw: (gr) => {
           gr.poly(front).fill({ color: col }).stroke({ width: 1, color: 0x000000, alpha: 0.6 });
@@ -340,9 +329,44 @@ export class CityView {
           const e = planeToIso((b.entrance.x + 0.5) * TILE, (b.entrance.y + 0.5) * TILE, 0);
           gr.ellipse(e.x, e.y, 3, 1.5).fill(0x000000);
         },
-      });
+      } });
     }
-    for (let r = 0; r < NB; r++) {
+    return out;
+  }
+
+  private nodeRows: Obj[][] = Array.from({ length: NB }, () => []);
+  private bldRows: Obj[][] = Array.from({ length: NB }, () => []);
+  /** Підпис кожного рядка клітинок вузлів (зрубано/виросло): перемальовуємо лише змінені шари глибини. */
+  private rowSig: Int32Array = new Int32Array(SECTOR_CELLS).fill(-1);
+  private bldSig = '';
+
+  /**
+   * Об'єкти (дерева, камінь, будівлі) по шарах глибини. Інкрементально: на великій карті (десятки тисяч вузлів)
+   * перебудовуємо лише ті шари, де щось змінилось (зрубане дерево, нова будівля).
+   */
+  private rebuild(): void {
+    const rt = getSectorRt(this.w, this.sector), seed = this.w.state.world.seed;
+    if (this.groundDirty) this.rebuildGround();
+    this.lastSig = this.signature();
+    const dirty = new Set<number>();
+    for (let cy = 0; cy < SECTOR_CELLS; cy++) {
+      let h = 0;
+      for (let cx = 0, i = cy * SECTOR_CELLS; cx < SECTOR_CELLS; cx++, i++) if (rt.kind[i]) h = (Math.imul(h, 31) + (rt.amount[i] > 0 ? i + 1 : -(i + 1))) | 0;
+      if (h === this.rowSig[cy]) continue;
+      this.rowSig[cy] = h;
+      const objs: Obj[] = [];
+      for (let cx = 0; cx < SECTOR_CELLS; cx++) { const n = this.nodeObj(rt, seed, cx, cy); if (n) objs.push(n.obj); }
+      this.nodeRows[cy] = objs;
+      dirty.add(cy);
+    }
+    const bsig = rt.buildings.map((b) => b.id).join(',');
+    if (bsig !== this.bldSig) {
+      this.bldSig = bsig;
+      for (let r = 0; r < NB; r++) if (this.bldRows[r].length) { dirty.add(r); this.bldRows[r] = []; }
+      for (const { row, obj } of this.buildingObjs(rt)) { this.bldRows[row].push(obj); dirty.add(row); }
+    }
+    for (const r of dirty) {
+      this.rows[r] = [...this.nodeRows[r], ...this.bldRows[r]];
       const gr = this.rowObj[r];
       gr.clear();
       for (const o of this.rows[r]) o.draw(gr);

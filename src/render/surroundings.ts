@@ -1,7 +1,8 @@
 import { Container, Graphics, Sprite, type Renderer } from 'pixi.js';
 import type { SectorState } from '../shared';
-import { SECTOR_CELLS, SECTOR_SIZE, WORLD_RING } from '../shared';
-import { NODE_STONE, NODE_TREE, nodeAt, nodeTile } from '../sim';
+import { SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL as TPC, WORLD_RING } from '../shared';
+import { nodeTile } from '../sim';
+import { genNode, mixNodeSeed } from '../sim/nodegen';
 import { STONE_TILES, TREE_TILES } from '../sim/balance';
 import { planeToIso, screenToIso, type Camera } from './projection';
 
@@ -24,8 +25,11 @@ export class Surroundings {
 
   constructor(
     private renderer: Renderer, private seed: number, private home: SectorState,
-    private neighbour: (dx: number, dy: number) => SectorState,
   ) {
+    // Одна суцільна земля на весь світ: між секторами немає ліній.
+    const gnd = new Graphics(), bb = Surroundings.bounds();
+    const pts = [planeToIso(bb.minX, bb.minY), planeToIso(bb.maxX, bb.minY), planeToIso(bb.maxX, bb.maxY), planeToIso(bb.minX, bb.maxY)];
+    if (WORLD_RING > 0) { gnd.poly(pts.flatMap((v) => [v.x, v.y])).fill(0x2a3a22); this.back.addChild(gnd); }
     for (let dy = -WORLD_RING; dy <= WORLD_RING; dy++) {
       for (let dx = -WORLD_RING; dx <= WORLD_RING; dx++) if (dx || dy) this.pending.push({ dx, dy });
     }
@@ -62,33 +66,28 @@ export class Surroundings {
   }
 
   private build(dx: number, dy: number): void {
-    const sec = this.neighbour(dx, dy);
-    // Віртуальний id дає незалежний від домашнього шум; seed той самий.
-    const vid = 100000 + (dy + WORLD_RING) * 64 + (dx + WORLD_RING) + this.home.id * 997;
-    const view: SectorState = { ...sec, id: vid };
-    const ox = dx * SECTOR_UNITS, oy = dy * SECTOR_UNITS;
+    // Сусіди = той самий світ: genNode від СВІТОВИХ координат клітинки (з домашнього сектора), без швів на межах.
+    const nodeSeed = mixNodeSeed(this.seed, this.home.id);
+    const wood = this.home.richness.wood ?? 0.3, stone = this.home.richness.stone ?? 0.3;
     const g = new Graphics();
-    const q = (x: number, y: number, w: number, h: number) => {
-      const p = [planeToIso(ox + x, oy + y), planeToIso(ox + x + w, oy + y), planeToIso(ox + x + w, oy + y + h), planeToIso(ox + x, oy + y + h)];
-      return p.flatMap((v) => [v.x, v.y]);
-    };
-    g.poly(q(0, 0, SECTOR_UNITS, SECTOR_UNITS)).fill(0x2a3a22);
     // Об'єкти від дальніх рядів до ближніх, щоб крони перекривались правильно.
     const objs: { y: number; draw: () => void }[] = [];
     for (let cy = 0; cy < SECTOR_CELLS; cy++) {
       for (let cx = 0; cx < SECTOR_CELLS; cx++) {
-        const [kind] = nodeAt(this.seed, view, cx, cy);
+        const wx = cx + dx * SECTOR_CELLS, wy = cy + dy * SECTOR_CELLS;
+        const kind = genNode(nodeSeed, wood, stone, wx, wy, SECTOR_CELLS >> 1);
         if (!kind) continue;
-        const nt = nodeTile(this.seed, vid, cx, cy);
-        const px = ox + (nt.x + 0.5) * TILE, py = oy + (nt.y + 0.5) * TILE;
+        const nt = nodeTile(this.seed, this.home.id, ((wx % 9973) + 9973) % 9973, ((wy % 9973) + 9973) % 9973);
+        const jx = nt.x % TPC, jy = nt.y % TPC; // дрібне зміщення всередині клітинки
+        const px = (wx * TPC + jx + 0.5) * TILE, py = (wy * TPC + jy + 0.5) * TILE;
         const base = planeToIso(px, py, 0);
-        if (kind === NODE_TREE) {
+        if (kind === 1) {
           const rad = (TREE_TILES * TILE) / 2, top = planeToIso(px, py, 22), mid = planeToIso(px, py, 9);
           objs.push({ y: py, draw: () => {
             g.rect(mid.x - 1.5, mid.y, 3, base.y - mid.y).fill(0x5d4037);
             g.ellipse(top.x, top.y + 3, rad, rad * 1.25).fill(0x1b5e20);
           } });
-        } else if (kind === NODE_STONE) {
+        } else {
           const rw = (STONE_TILES * TILE) / 2;
           objs.push({ y: py, draw: () => { g.ellipse(base.x, base.y - 3, rw, rw * 0.7).fill(0x78787f); } });
         }

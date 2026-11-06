@@ -50,6 +50,7 @@ function bench(total: number, sectors: number, ticks: number) {
 }
 
 describe('бенчмарк симуляції', () => {
+  it('4000 NPC в одному великому місті', () => { expect(bench(4000, 1, 100)).toBeLessThan(100); });
   it('500 NPC', () => { expect(bench(500, 4, 200)).toBeLessThan(100); });
   it('2000 NPC', () => { expect(bench(2000, 8, 200)).toBeLessThan(100); });
 });
