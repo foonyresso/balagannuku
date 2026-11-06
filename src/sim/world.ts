@@ -2,7 +2,7 @@ import type {
   BuildingId, BuildingState, GameEvent, GameState, NpcStore, PackedNpcStore, PlayerState, SectorState,
   SerializedGameState, TrailLayer,
 } from '../shared';
-import { NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, stageFromTraffic } from '../shared';
+import { BORDER_CELLS, NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, isActiveCell, isActiveTile, stageFromTraffic } from '../shared';
 import { hash2 } from './rng';
 import { refreshClear } from './clear';
 import { genNode, mixNodeSeed } from './nodegen';
@@ -130,6 +130,17 @@ export function getSectorRt(w: SimWorld, id: number): SectorRt {
       rt.forest[i] = k === NODE_TREE && rt.amount[i] > 0 ? 1 : 0;
     }
   }
+  // неактивна смуга: тайли зайняті назавжди (прохід і будівництво заборонені), вузлів ресурсів у симуляції немає
+  for (let y = 0; y < T; y++) {
+    for (let x = 0; x < T; x++) if (!isActiveTile(x, y)) rt.occ[y * T + x] = 1;
+  }
+  for (let y = 0; y < C; y++) {
+    for (let x = 0; x < C; x++) if (!isActiveCell(x, y)) { const i = y * C + x; rt.kind[i] = 0; rt.amount[i] = 0; rt.forest[i] = 0; }
+  }
+  refreshClear(rt.occ, rt.blocked1, rt.blocked2, 0, C - 1, 0, BORDER_CELLS);
+  refreshClear(rt.occ, rt.blocked1, rt.blocked2, 0, C - 1, C - 1 - BORDER_CELLS, C - 1);
+  refreshClear(rt.occ, rt.blocked1, rt.blocked2, 0, BORDER_CELLS, 0, C - 1);
+  refreshClear(rt.occ, rt.blocked1, rt.blocked2, C - 1 - BORDER_CELLS, C - 1, 0, C - 1);
   for (let i = 0; i < nt; i++) {
     const st = stageFromTraffic(rt.trails.traffic[i]);
     rt.stage[i] = st;

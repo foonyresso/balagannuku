@@ -1,7 +1,7 @@
 import type { SerializedGameState } from './state';
 
 /** Поточна версія формату сейва. Підвищуй при КОЖНІЙ зміні форми SerializedGameState. */
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 export const SAVE_MAGIC = 'balagannuku-save';
 export const SAVE_EXTENSION = '.save';
 
@@ -65,6 +65,14 @@ export const MIGRATIONS: Record<number, SaveMigration> = {
       throw new Error('Сейв із містом на карті старого розміру не підтримується: почни нову гру.');
     }
     return { ...f, version: 7, state: { ...f.state, sectors: f.state.sectors.map((s) => ({ ...s, trails: null, nodes: null })) } };
+  },
+  // v7 -> v8: активна зона 700 + неактивна смуга 64 клітинки навколо (карта 828×828). Світ без міста переносимо (стежки/вузли скидаємо).
+  7: (old) => {
+    const f = old as { version: number; state: { buildings: unknown[]; npcs: { count: number }; sectors: object[] } & Record<string, unknown> };
+    if (f.state.buildings.length > 0 || f.state.npcs.count > 0) {
+      throw new Error('Сейв із містом на карті старого розміру не підтримується: почни нову гру.');
+    }
+    return { ...f, version: 8, state: { ...f.state, sectors: f.state.sectors.map((s) => ({ ...s, trails: null, nodes: null })) } };
   },
 };
 

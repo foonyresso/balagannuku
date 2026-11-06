@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hexDisc } from '../sim/hex';
-import { clampCamToWorld, depthOrder, hexToIso, pickTile, tileGeometry, isoToScreen, planeToIso, screenToHex, screenToPlane, zoomAt, ZOOM_MAX, ISO_Y, ISO_Z, VIEW_ANGLE_DEG, type Camera } from './projection';
+import { clampCamInside, clampCamToWorld, depthOrder, hexToIso, pickTile, tileGeometry, isoToScreen, planeToIso, screenToHex, screenToPlane, zoomAt, ZOOM_MAX, ISO_Y, ISO_Z, VIEW_ANGLE_DEG, type Camera } from './projection';
 
 const cam: Camera = { x: 400, y: 300, zoom: 1.3 };
 
@@ -84,5 +84,21 @@ describe('межі камери', () => {
     expect(mid.y).toBeGreaterThanOrEqual(b.minY - 1e-6);
     expect(mid.y).toBeLessThanOrEqual(b.maxY + 1e-6);
     expect(c.zoom).toBe(0.5);
+  });
+});
+
+describe('суворе обмеження камери (край карти не видно)', () => {
+  const b = { minX: 0, minY: 0, maxX: 3000, maxY: 3000 };
+  const inside = (c: Camera, w: number, h: number) => {
+    const tl = screenToPlane(0, 0, c), br = screenToPlane(w, h, c);
+    return tl.x >= b.minX - 1e-6 && tl.y >= b.minY - 1e-6 && br.x <= b.maxX + 1e-6 && br.y <= b.maxY + 1e-6;
+  };
+  it('екран завжди всередині світу для будь-якої камери', () => {
+    for (const c of [{ x: -9e5, y: 9e5, zoom: 0.5 }, { x: 9e5, y: -9e5, zoom: 2 }, { x: 0, y: 0, zoom: 0.01 }, { x: 100, y: 100, zoom: 10 }]) {
+      expect(inside(clampCamInside(c, 1280, 720, b), 1280, 720)).toBe(true);
+    }
+  });
+  it('зум піднімається, якщо світ менший за екран', () => {
+    expect(clampCamInside({ x: 0, y: 0, zoom: 0.01 }, 1280, 720, b).zoom).toBeGreaterThan(0.01);
   });
 });

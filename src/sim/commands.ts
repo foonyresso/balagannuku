@@ -1,6 +1,7 @@
 import type {
   BuildingKind, BuildingState, CommandEnvelope, CommandRejectReason, CommandResult, ResourceKind,
 } from '../shared';
+import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE } from '../shared';
 import { COSTS, FOOTPRINT, JOB_OF, MAX_WORKERS, PLACE_MARGIN, START_SETTLERS, START_STOCK, STORAGE_CAP } from './balance';
 import { assignNpc, autoStaffIdle, slotsOf, unassignNpc } from './assign';
 import { spawnNpc } from './npcs';
@@ -31,7 +32,7 @@ function addBuilding(w: SimWorld, kind: BuildingKind, owner: string, sector: num
 export function checkPlace(w: SimWorld, sector: number, kind: BuildingKind, x: number, y: number): 'invalid' | 'occupied' | null {
   const fp = FOOTPRINT[kind];
   if (!fp || !Number.isInteger(x) || !Number.isInteger(y)) return 'invalid';
-  if (x < 0 || y < 0 || x + fp.w > TILES || y + fp.h + 1 > TILES) return 'invalid';
+  if (x < ACTIVE_MIN_TILE || y < ACTIVE_MIN_TILE || x + fp.w > ACTIVE_MAX_TILE || y + fp.h + 1 > ACTIVE_MAX_TILE) return 'invalid'; // лише в активній зоні
   const rt = getSectorRt(w, sector);
   for (let ty = y; ty <= y + fp.h; ty++) {
     for (let tx = x; tx < x + fp.w; tx++) if (rt.occ[ty * TILES + tx]) return 'occupied';
