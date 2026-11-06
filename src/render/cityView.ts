@@ -20,7 +20,7 @@ const TILE = 4;
 const CITY_ZOOM_MAX = 10;
 const FOLLOW_ZOOM = 3.5;
 /** Висота будівель (одиниці площини); ширина/глибина — з footprint у тайлах. */
-const BUILD_H: Record<string, number> = { townhall: 30, warehouse: 18, lumberjack: 16, quarry: 14, sawmill: 22, farm: 10, house: 18 };
+const BUILD_H: Record<string, number> = { townhall: 30, warehouse: 18, lumberjack: 16, quarry: 14, sawmill: 22, farm: 10, hunter: 14, house: 18 };
 // Шар глибини = один ряд клітинок (BUCKET = TILES_PER_CELL тайлів): вузол клітинки cy завжди лягає в шар cy,
 // тож зміну вузлів у рядку можна перемалювати одним шаром.
 const NB = SECTOR_CELLS;
@@ -28,13 +28,13 @@ const BUCKET = SECTOR_SIZE / NB;
 
 const STAGE_COLORS = [0, 0x5a4a30, 0x8a7448, 0xb8b0a0];
 const BUILD_COLORS: Record<string, number> = {
-  townhall: 0xffd54f, warehouse: 0xc19a6b, lumberjack: 0x2e7d32, quarry: 0x9e9e9e, sawmill: 0xd7a86e, farm: 0xc0ca33, house: 0xe57373,
+  townhall: 0xffd54f, warehouse: 0xc19a6b, lumberjack: 0x2e7d32, quarry: 0x9e9e9e, sawmill: 0xd7a86e, farm: 0xc0ca33, hunter: 0x6d4c41, house: 0xe57373,
 };
 const lighten = (c: number): number => {
   const f = (v: number) => Math.min(255, Math.round(v + (255 - v) * 0.25));
   return (f((c >> 16) & 255) << 16) | (f((c >> 8) & 255) << 8) | f(c & 255);
 };
-const PROF_COLORS = [0xeeeeee, 0x66bb6a, 0xbdbdbd, 0x90caf9, 0xff8a65, 0xba68c8, 0xffcc80, 0xaed581];
+const PROF_COLORS = [0xeeeeee, 0x66bb6a, 0xbdbdbd, 0x90caf9, 0xff8a65, 0xba68c8, 0xffcc80, 0xaed581, 0xa1887f];
 
 interface Obj { draw: (g: Graphics) => void; pick: number[] | null; tile: { x: number; y: number } | null; sel: Sel | null }
 type Tile = { x: number; y: number };

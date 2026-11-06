@@ -1,6 +1,6 @@
 import type { LobbyPlayer } from '../shared';
 import type { GameState } from '../shared';
-import { loadState, pickSaveFile } from '../persist';
+import { autosaveInfo, loadAutosave, loadState, pickSaveFile } from '../persist';
 import { ClientLobby, HostLobby, type JoinResult, connectToRoom, isValidRoomCode, normalizeRoomCode, openRoom } from '../net';
 
 const CSS = `
@@ -56,7 +56,8 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
       <button id="new">Нова гра</button>
       <input id="code" placeholder="Код кімнати" maxlength="5" style="text-transform:uppercase">
       <button id="join" class="sec">Приєднатися за кодом</button>
-      <button id="cont" class="sec">Продовжити з сейва</button>
+      <button id="contAuto" style="display:none">Продовжити</button>
+      <button id="cont" class="sec">Завантажити з файлу</button>
       <div class="err" id="err"></div>`);
     // Якщо екран уже замінено (напр., після входу в кімнату), повертаємось у меню, щоб показати помилку.
     const err = (m: string) => {
@@ -74,10 +75,10 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
         hostView(lobby);
       } catch { err('Не вдалося створити кімнату (немає зв’язку з сервером).'); }
     };
-    q('#cont').onclick = async () => {
+    const resume = async (read: () => Promise<import('../shared').SaveFile | null>, missing?: string) => {
       try {
-        const save = await pickSaveFile();
-        if (!save) return;
+        const save = await read();
+        if (!save) return missing ? err(missing) : undefined;
         const loaded = loadState(save);
         if (!loaded.players.length) return err('У сейві немає гравців.');
         err('Створюю кімнату…');
@@ -87,6 +88,12 @@ export function mountLobby(cb: LobbyCallbacks = {}): LobbyHandle {
         hostView(lobby, loaded);
       } catch (e) { err(e instanceof Error ? e.message : 'Не вдалося прочитати сейв.'); }
     };
+    q('#cont').onclick = () => resume(async () => pickSaveFile());
+    q('#contAuto').onclick = () => resume(() => loadAutosave(), 'Автозбереження не знайдено.');
+    void autosaveInfo().then((i) => {
+      const b = root.querySelector<HTMLElement>('#contAuto');
+      if (i && b) { b.style.display = ''; b.title = `Автозбереження від ${new Date(i.savedAt).toLocaleString('uk-UA')}`; b.textContent = `Продовжити (${new Date(i.savedAt).toLocaleString('uk-UA', { dateStyle: 'short', timeStyle: 'short' })})`; }
+    });
     q('#join').onclick = async () => {
       const code = normalizeRoomCode(q<HTMLInputElement>('#code').value);
       if (!isValidRoomCode(code)) return err('Невірний код кімнати.');
