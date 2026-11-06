@@ -1,7 +1,7 @@
 import type { SerializedGameState } from './state';
 
 /** Поточна версія формату сейва. Підвищуй при КОЖНІЙ зміні форми SerializedGameState. */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const SAVE_MAGIC = 'balagannuku-save';
 export const SAVE_EXTENSION = '.save';
 
@@ -37,6 +37,14 @@ export const MIGRATIONS: Record<number, SaveMigration> = {
         flows: { windowTicks: 100, windowStart: 0, cur: snap(), last: snap(), total: snap() },
       },
     };
+  },
+  // v2 -> v3: дрібна сітка тайлів (4×4 на клітинку). Світ без міста переносимо; з містом — чесно відхиляємо.
+  2: (old) => {
+    const f = old as { version: number; state: { buildings: unknown[]; npcs: { count: number }; sectors: object[] } & Record<string, unknown> };
+    if (f.state.buildings.length > 0 || f.state.npcs.count > 0) {
+      throw new Error('Сейв із містом старого формату (до дрібної сітки тайлів) не підтримується: почни нову гру.');
+    }
+    return { ...f, version: 3, state: { ...f.state, sectors: f.state.sectors.map((s) => ({ ...s, trails: null })) } };
   },
 };
 

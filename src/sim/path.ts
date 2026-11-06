@@ -1,8 +1,8 @@
-import { ROAD_SPEED_MULT, SECTOR_SIZE, TrailStage } from '../shared';
+import { ROAD_SPEED_MULT, SECTOR_CELLS, TrailStage } from '../shared';
 import { ROAD_PULL } from './balance';
 
-const S = SECTOR_SIZE, N = S * S;
-const g = new Float32Array(N), from = new Int16Array(N);
+const S = SECTOR_CELLS, N = S * S; // A* — по грубій сітці клітинок навігації, не по тайлах
+const g = new Float32Array(N), from = new Int16Array(N); // N ≤ 4096 < 32767
 const seen = new Uint32Array(N), closed = new Uint32Array(N);
 const HCAP = N * 9;
 const hf = new Float32Array(HCAP), hi = new Int16Array(HCAP);
@@ -40,14 +40,14 @@ function pop(): number {
 }
 
 export interface PathGrid {
-  blocked: Uint8Array;
-  stage: Uint8Array; // стадія стежки на клітинку
+  blocked: Uint8Array; // клітинка перекрита будівлею
+  cellStage: Uint8Array; // макс. стадія стежки в клітинці
   forest: Uint8Array; // 1 = клітинка з деревом (повільніше йти)
 }
 
 /**
  * Один A* на ПОДОРОЖ (не на крок). Вартість клітинки: стежки дешевші (ROAD_SPEED_MULT), ліс дорожчий.
- * Повертає клітинки від старту (виключно) до цілі (включно), або null. Ціль може бути «заблокованою» (вхід).
+ * Повертає КЛІТИНКИ навігації від старту (виключно) до цілі (включно), або null. Ціль може бути «заблокованою» (вхід).
  */
 export function findPath(grid: PathGrid, sx: number, sy: number, gx: number, gy: number): Int16Array | null {
   const start = sy * S + sx, goal = gy * S + gx;
@@ -56,7 +56,7 @@ export function findPath(grid: PathGrid, sx: number, sy: number, gx: number, gy:
   hn = 0;
   g[start] = 0; seen[start] = stamp; from[start] = -1;
   push(0, start);
-  const { blocked, stage, forest } = grid;
+  const { blocked, cellStage, forest } = grid;
   const hw = Math.min(0.8, MIN_COST()); // допустима евристика
   let found = false;
   while (hn > 0) {
@@ -72,7 +72,7 @@ export function findPath(grid: PathGrid, sx: number, sy: number, gx: number, gy:
       if (closed[ni] === stamp) continue;
       if (blocked[ni] && ni !== goal) continue;
       if (d >= 4 && (blocked[cy * S + nx] || blocked[ny * S + cx])) continue; // без зрізання кутів
-      const step = (d >= 4 ? 1.414 : 1) * STAGE_COST[stage[ni]] * (forest[ni] ? 1.6 : 1);
+      const step = (d >= 4 ? 1.414 : 1) * STAGE_COST[cellStage[ni]] * (forest[ni] ? 1.6 : 1);
       const ng = g[cur] + step;
       if (seen[ni] !== stamp || ng < g[ni]) {
         seen[ni] = stamp; g[ni] = ng; from[ni] = cur;

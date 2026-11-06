@@ -46,9 +46,9 @@ export interface SectorState {
   owner: PlayerId | null;
   /** Багатство ресурсів 0..1 (з шуму, фіксується при генерації). */
   richness: Partial<Record<ResourceKind, number>>;
-  /** Трафік стежок на клітинку (SECTOR_SIZE²). Стадія — похідна. */
+  /** Трафік стежок на тайл (SECTOR_SIZE², u16). Стадія — похідна. */
   trails: PackedTrailLayer | null;
-  /** Залишок у вузлах ресурсів (дерево/камінь) на клітинку; null = початковий. Вид вузла похідний від seed. */
+  /** Залишок у вузлах ресурсів (дерево/камінь) на КЛІТИНКУ навігації (SECTOR_CELLS²); null = початковий. Вид вузла похідний від seed. */
   nodes: PackedArray | null;
 }
 
@@ -57,8 +57,9 @@ export interface BuildingState {
   kind: BuildingKind;
   owner: PlayerId;
   sector: SectorId;
-  cell: CellCoord; // якірна клітинка
-  entrance: CellCoord; // вхід (для NPC і прикріплення до дороги)
+  cell: CellCoord; // лівий верхній тайл footprint
+  size: { w: number; h: number }; // footprint у тайлах
+  entrance: CellCoord; // тайл входу (для NPC і прикріплення до дороги)
   progress: number; // 0..1 будівництво
   roadAttached: boolean; // кеш, перераховує sim
   stock: Partial<Record<ResourceKind, number>>;
@@ -76,7 +77,7 @@ export interface NpcStore {
   count: number;
   alive: Uint8Array;
   sector: Uint16Array;
-  x: Float32Array; // у клітинках сектора
+  x: Float32Array; // у тайлах сектора (дробові; NPC рухаються вільно)
   y: Float32Array;
   profession: Uint8Array; // індекс у PROFESSIONS
   task: Uint8Array; // індекс у TASKS

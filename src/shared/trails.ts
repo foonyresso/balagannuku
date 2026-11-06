@@ -3,7 +3,7 @@ import type { PackedArray } from './ids';
 
 /**
  * Шар «стежок»: емерджентні дороги.
- * Кожен сектор має лічильник трафіку на клітинку (u16, SECTOR_SIZE²).
+ * Кожен сектор має лічильник трафіку на тайл (u16, SECTOR_SIZE²).
  * - NPC, що пройшов клітинку, додає TRAIL_STEP_ADD.
  * - Раз на TRAIL_DECAY_INTERVAL тіків усе множиться на TRAIL_DECAY_FACTOR (згасання).
  * - Стадія — ПОХІДНА від трафіку за порогами; у сейві зберігається лише трафік.
@@ -23,7 +23,10 @@ export interface TrailThresholds {
   paved: number;
 }
 
-export const DEFAULT_TRAIL_THRESHOLDS: TrailThresholds = { trampled: 20, road: 150, paved: 800 };
+/** Пороги на ТАЙЛ (трафік розсіяний по тайлах, тож нижчі, ніж для крупної клітинки). */
+export const DEFAULT_TRAIL_THRESHOLDS: TrailThresholds = { trampled: 8, road: 60, paved: 300 };
+/** Ширина «пензля» стежки в тайлах за стадією (для рендера й прикріплення). */
+export const TRAIL_BRUSH_TILES = [0, 1, 3, 5] as const;
 export const TRAIL_HYSTERESIS = 0.8;
 
 export function stageFromTraffic(
