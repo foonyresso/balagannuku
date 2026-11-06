@@ -1,10 +1,5 @@
-import { hash2 } from '../sim/rng';
+import { npcName } from '../shared';
+import type { SimWorld } from '../sim';
 
-const FIRST = ['Богдан', 'Олекса', 'Тарас', 'Мирон', 'Захар', 'Левко', 'Орест', 'Свирид', 'Гнат', 'Явдоха', 'Мар’яна', 'Оксана', 'Устим', 'Хома', 'Данило', 'Степан', 'Ярема', 'Лукʼян', 'Соломія', 'Галя', 'Опанас', 'Кіндрат', 'Петро', 'Микита'];
-const NICK = ['Рудий', 'Мовчун', 'Швидкий', 'Міцний', 'Сивий', 'Веселий', 'Хитрий', 'Тихий', 'Кремезний', 'Дзвінкий', 'Гострий', 'Легкий'];
-
-/** Стабільне випадкове імʼя жителя: залежить лише від зерна світу й номера NPC (однакове в усіх клієнтів, без Math.random). */
-export function npcName(seed: number, id: number): string {
-  const a = Math.floor(hash2(id, seed | 0, 11) * FIRST.length), b = Math.floor(hash2(seed | 0, id, 13) * NICK.length);
-  return `${FIRST[a]} ${NICK[b]}`;
-}
+/** Імʼя жителя з даних симуляції (nameId): однакове в усіх клієнтів. */
+export const nameOf = (w: SimWorld, id: number): string => npcName(w.state.npcs.nameId[id]);

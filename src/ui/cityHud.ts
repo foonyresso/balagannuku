@@ -1,7 +1,7 @@
 import type { BuildingKind } from '../shared';
-import { buildCheck, residents, type SimWorld } from '../sim';
-import { COSTS, MAX_WORKERS } from '../sim/balance';
-import { npcName } from './names';
+import { buildCheck, residents, slotsOf, type SimWorld } from '../sim';
+import { COSTS } from '../sim/balance';
+import { nameOf } from './names';
 import { BUILD_NAMES, describeSel, RES_NAMES, stateText, PROF_TXT, type Sel } from './info';
 import { SPEEDS } from './pacer';
 import './cityHud.css';
@@ -150,7 +150,7 @@ export class CityHud {
 
   update(st: HudState): void {
     this.st = st;
-    const w = this.w, seed = w.state.world.seed;
+    const w = this.w;
     this.lastBuild = st.build; this.lastFollow = st.following;
     this.updateSpeed(st);
     const p = w.state.players.find((x) => x.id === this.player)!;
@@ -176,7 +176,7 @@ export class CityHud {
       });
       const shown = list.filter((r) => this.filter === 'all' || (this.filter === 'free') === (r.workplace < 0));
       syncRows(this.$('#peopleList'), this.peopleRows, shown.map((r) => ({
-        key: r.id, text: `${npcName(seed, r.id)} · ${PROF_TXT[r.profession] ?? r.profession}${r.workplace >= 0 ? ` #${r.workplace}` : ''}: ${stateText(r)}`,
+        key: r.id, text: `${nameOf(w, r.id)} · ${PROF_TXT[r.profession] ?? r.profession}${r.workplace >= 0 ? ` #${r.workplace}` : ''}: ${stateText(r)}`,
         cls: r.state === 'no_path' ? 'x' : undefined,
       })).slice(0, 300));
       this.markSel(this.peopleRows, st.selected?.t === 'npc' ? st.selected.id : -1);
@@ -186,7 +186,7 @@ export class CityHud {
       const infos = live.map((b) => ({ b, i: describeSel(w, this.player, this.sector, { t: 'building', id: b.id }) }));
       syncRows(this.$('[data-body=prod]'), this.prodRows, infos.map(({ b, i }) => {
         const get = (n: string) => i?.rows.find((r) => r[0] === n)?.[1];
-        const max = MAX_WORKERS[b.kind];
+        const max = slotsOf(b);
         const parts = [get('Стан'), max ? `працівників ${b.workers.length}/${max}` : '', get('Ефективність') ? `ефективність ${get('Ефективність')}` : '', get('Виробіток')].filter(Boolean);
         return { key: b.id, text: `${i?.title}: ${parts.join(' · ')}`, cls: i?.warn ? 'x' : undefined };
       }));
@@ -232,7 +232,7 @@ export class CityHud {
       asg.innerHTML = info.assign ? '<h4>Призначити на роботу</h4>' + (info.assign.length ? info.assign.map((a) => `<button data-b="${a.building}">${a.label}</button>`).join('') : '<div class="none">вільних місць немає</div>') : '';
       this.$('#infoFree').hidden = !info.canUnassign;
       const sl = this.$('#infoSlots'); sl.hidden = !info.slots;
-      if (info.slots) this.$('#slotNum').textContent = `${info.slots.cur}/${info.slots.max}`;
+      if (info.slots) this.$('#slotNum').textContent = `${info.slots.cur}/${info.slots.cap}`;
     }
     const f = this.$('#infoFollow'), t = st.following ? '📍 Камера слідує' : '📍 Слідкувати';
     if (f.textContent !== t) f.textContent = t;
