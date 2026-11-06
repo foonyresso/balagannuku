@@ -12,7 +12,7 @@ export type Sel =
   | { t: 'road'; x: number; y: number };
 
 export const BUILD_NAMES: Partial<Record<BuildingKind, string>> = {
-  townhall: 'Ратуша', warehouse: 'Склад', lumberjack: 'Лісоруб', quarry: 'Кар’єр', sawmill: 'Лісопильня', farm: 'Ферма', house: 'Будинок',
+  townhall: 'Ратуша', warehouse: 'Склад', lumberjack: 'Лісоруб', quarry: 'Кар’єр', sawmill: 'Лісопильня', farm: 'Ферма', hunter: 'Мисливець', house: 'Будинок',
 };
 export const RES_NAMES: Record<string, string> = { wood: 'Дерево', stone: 'Камінь', planks: 'Дошки', food: 'Їжа' };
 export const WHY: Record<string, string> = {
@@ -28,7 +28,7 @@ export const PROF_TXT: Record<string, string> = {
   idle: 'без роботи', lumberjack: 'лісоруб', miner: 'каменяр', sawyer: 'пильщик', carrier: 'носій', smith: 'коваль', hero: 'герой',
 };
 export const STAGE_TXT = ['', 'витоптана стежка', 'дорога', 'вимощена дорога'];
-const OUT: Partial<Record<BuildingKind, 'wood' | 'stone' | 'planks' | 'food'>> = { lumberjack: 'wood', quarry: 'stone', sawmill: 'planks', farm: 'food' };
+const OUT: Partial<Record<BuildingKind, 'wood' | 'stone' | 'planks' | 'food'>> = { lumberjack: 'wood', quarry: 'stone', sawmill: 'planks', farm: 'food', hunter: 'food' };
 
 const STAT_TXT: Record<string, string> = { walk: 'Швидкість ходьби', carry: 'Вантажопідйомність', gather: 'Швидкість добування', rare: 'Шанс рідкісного ресурсу' };
 const PERK_TXT: Record<string, string> = { swift: 'Швидкоходик', porter: 'Носій', woodcutter: 'Лісоруб від природи', stonecutter: 'Каменяр від природи', lucky: 'Щасливчик' };

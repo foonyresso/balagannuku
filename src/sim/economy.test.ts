@@ -27,7 +27,7 @@ export function setup(seed = 7): SimWorld {
 /** Тайли неактивної смуги завжди зайняті. */
 const BORDER_OCC = SECTOR_SIZE * SECTOR_SIZE - (ACTIVE_MAX_TILE - ACTIVE_MIN_TILE) ** 2;
 const OFF = SECTOR_CELLS / 2 - 32;
-type Kind = 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'farm' | 'house';
+type Kind = 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'farm' | 'hunter' | 'house';
 /** Найближчий до (x0,y0) тайл, де кind можна поставити (за checkPlace). */
 const free = (w: SimWorld, kind: Kind, x0: number, y0: number) => {
   let best = { x: x0, y: y0 }, bd = Infinity;
@@ -706,5 +706,20 @@ describe('їжа і голод', () => {
     w.state.npcs.fullness[0] = 33;
     expect(deserialize(serialize(w)).state.npcs.fullness[0]).toBe(33);
     expect(MIGRATIONS[8]({ version: 8 })).toEqual({ version: 9 });
+  });
+});
+
+describe('полювання', () => {
+  it('мисливець добуває їжу в лісі й несе до складу', () => {
+    const w = setup(5);
+    const b = place(w, 'hunter', 36, 30);
+    hall(w).stock.food = 0;
+    staffBuilding(w, 'p', b.id);
+    expect(b.workers.length).toBeGreaterThan(0);
+    run(w, 1200);
+    const f = w.state.flows.total;
+    expect(f.byBuilding[b.id]?.produced.food ?? 0).toBeGreaterThan(0);
+    expect(f.edges[`${b.id}>${hall(w).id}:food`] ?? 0).toBeGreaterThan(0);
+    expect(f.edges[`0>${b.id}:food`] ?? 0).toBeGreaterThan(0);
   });
 });
