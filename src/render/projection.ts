@@ -150,3 +150,21 @@ export function clampCamToWorld(
   const iso = planeToIso(nx, ny);
   return { zoom: cam.zoom, x: screenW / 2 - iso.x * cam.zoom, y: screenH / 2 - iso.y * cam.zoom };
 }
+
+/**
+ * Суворе обмеження камери: екран ЗАВЖДИ лежить усередині світу (край карти не видно). Ізо-проєкція — лише масштаб осей
+ * (x → x, y → y·ISO_Y), тож вид на площині — прямокутник. Зум піднімається до мінімального, при якому світ вміщує екран.
+ */
+export function clampCamInside(
+  cam: Camera, screenW: number, screenH: number,
+  bounds: { minX: number; minY: number; maxX: number; maxY: number },
+): Camera {
+  const ww = bounds.maxX - bounds.minX, wh = bounds.maxY - bounds.minY;
+  const zoom = Math.max(cam.zoom, screenW / ww, screenH / (wh * ISO_Y));
+  const c = screenToPlane(screenW / 2, screenH / 2, cam);
+  const hw = screenW / (2 * zoom), hh = screenH / (2 * zoom * ISO_Y);
+  const nx = Math.min(bounds.maxX - hw, Math.max(bounds.minX + hw, c.x));
+  const ny = Math.min(bounds.maxY - hh, Math.max(bounds.minY + hh, c.y));
+  const iso = planeToIso(nx, ny);
+  return { zoom, x: screenW / 2 - iso.x * zoom, y: screenH / 2 - iso.y * zoom };
+}

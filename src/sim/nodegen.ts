@@ -49,6 +49,12 @@ export const COMPACT_NODEGEN: Partial<NodegenConfig> = {
   treeDensity: 0.55, stoneDensity: 0.5, treeRichGain: 0.3, stoneRichGain: 0.3, richRadius: 1e9, meadowCut: -1,
 };
 
+/** Густий ліс і скелі неактивної смуги (лише вигляд; у симуляції там вузлів немає). Чиста функція світових координат. */
+export function genBorderNode(seed: number, x: number, y: number): NodeKindId {
+  const h = hash2(x, y, seed ^ 0x5bd1);
+  return h < 0.07 ? 1 : h < 0.09 ? 2 : 0;
+}
+
 export type NodeKindId = 0 | 1 | 2; // 0 нічого, 1 дерево, 2 камінь
 
 /** Змішує seed світу з id сектора: різні сектори — різні карти, всередині сектора шум суцільний. */

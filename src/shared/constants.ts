@@ -7,7 +7,15 @@ export const SIM_TICK_HZ = 10;
  * а рух і стежки — по тайлах. Зміна цих констант змінює формат сейва (SAVE_VERSION).
  */
 export const TILES_PER_CELL = 4;
-export const SECTOR_CELLS = 512; // клітинок навігації на сторону сектора = ОДНА суцільна карта міста (2048² тайлів); розмір міняй тут і піднімай SAVE_VERSION
+/** Активна зона міста (де можна будувати й ходити), клітинок навігації на сторону. Розширення міста = збільшення цього числа (+ SAVE_VERSION). */
+export const ACTIVE_CELLS = 700;
+/** Неактивна смуга довкола активної зони: густий ліс і скелі, будувати й ходити не можна, візуально — туман. */
+export const BORDER_CELLS = 64;
+export const SECTOR_CELLS = ACTIVE_CELLS + 2 * BORDER_CELLS; // уся карта: клітинок навігації на сторону (828 → 3312² тайлів)
+export const ACTIVE_MIN_TILE = BORDER_CELLS * TILES_PER_CELL; // перший активний тайл
+export const ACTIVE_MAX_TILE = (BORDER_CELLS + ACTIVE_CELLS) * TILES_PER_CELL; // перший тайл ПІСЛЯ активної зони
+export const isActiveTile = (x: number, y: number): boolean => x >= ACTIVE_MIN_TILE && y >= ACTIVE_MIN_TILE && x < ACTIVE_MAX_TILE && y < ACTIVE_MAX_TILE;
+export const isActiveCell = (cx: number, cy: number): boolean => cx >= BORDER_CELLS && cy >= BORDER_CELLS && cx < BORDER_CELLS + ACTIVE_CELLS && cy < BORDER_CELLS + ACTIVE_CELLS;
 export const SECTOR_SIZE = SECTOR_CELLS * TILES_PER_CELL; // ТАЙЛІВ на сторону сектора (2048)
 /**
  * Видимий світ міста: квадратна сітка секторів навколо домашнього, (2·WORLD_RING+1)². 1 → 3×3, 2 → 5×5.

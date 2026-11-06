@@ -1,11 +1,12 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import type { BuildingKind } from '../shared';
-import { SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES } from '../shared';
+import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE, SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES, isActiveCell } from '../shared';
+import { genBorderNode, mixNodeSeed } from '../sim/nodegen';
 import {
   applyCommand, checkPlace, getSectorRt, idleNpcs, slotsOf, nodeTile, staffBuilding, stepWorld, NODE_TREE, type SimWorld,
 } from '../sim';
 import { FOOTPRINT, JOB_OF, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_TILES } from '../sim/balance';
-import { ISO_Y, clampCamToWorld, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
+import { ISO_Y, clampCamInside, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
 import { Surroundings } from './surroundings';
 import { lerpPos, TickClock } from './interp';
 import { BuildingGhost } from './buildingGhost';
@@ -76,6 +77,7 @@ export class CityView {
       this.root.addChild(o, n);
     }
     this.root.addChild(this.surroundings.front);
+    this.drawFog();
     this.root.addChild(this.hoverG);
     app.stage.addChild(this.root);
     const mid = planeToIso((SECTOR_SIZE * TILE) / 2, (SECTOR_SIZE * TILE) / 2);
@@ -117,7 +119,7 @@ export class CityView {
   private clock = new TickClock();
   private surroundings: Surroundings;
   private applyCam(): void {
-    this.cam = clampCamToWorld(this.cam, this.app.screen.width, this.app.screen.height, Surroundings.bounds());
+    this.cam = clampCamInside(this.cam, this.app.screen.width, this.app.screen.height, Surroundings.bounds());
     this.root.position.set(this.cam.x, this.cam.y);
     this.root.scale.set(this.cam.zoom);
   }
@@ -269,6 +271,19 @@ export class CityView {
   }
 
   /** Земля й стежки: «пензель» шириною за стадією (стежка вузька, вимощена дорога широка). */
+  /** Туман неактивної смуги: ступінчасте затемнення до краю карти (поверх лісу й каміння). */
+  private drawFog(): void {
+    const g = new Graphics(), A = ACTIVE_MIN_TILE, Z = ACTIVE_MAX_TILE, n = 8, step = A / n;
+    const frame = (i0: number, i1: number, alpha: number) => { // кільце між відступами i0 < i1 тайлів від активного краю назовні
+      const a0 = A - i0, b0 = Z + i0, a1 = A - i1, b1 = Z + i1;
+      for (const q of [[a1, a1, b1 - a1, i1 - i0], [a1, b0, b1 - a1, i1 - i0], [a1, a0, i1 - i0, b0 - a0], [b0, a0, i1 - i0, b0 - a0]]) {
+        g.poly(this.quad(q[0], q[1], q[2], q[3])).fill({ color: 0x0b1424, alpha });
+      }
+    };
+    for (let k = 0; k < n; k++) frame(k * step, (k + 1) * step, 0.3 + 0.06 * k);
+    this.root.addChild(g);
+  }
+
   private rebuildGround(): void {
     const rt = getSectorRt(this.w, this.sector);
     const g = this.ground;
@@ -286,9 +301,16 @@ export class CityView {
 
   /** Об'єкт-вузол ресурсу в клітинці (cx, cy) або null. Рядок шару глибини — bucket(nt.y). */
   private nodeObj(rt: ReturnType<typeof getSectorRt>, seed: number, cx: number, cy: number): { row: number; obj: Obj } | null {
-    const i = cy * SECTOR_CELLS + cx, kind = rt.kind[i];
+    const i = cy * SECTOR_CELLS + cx, border = !isActiveCell(cx, cy);
+    const kind = border ? genBorderNode(mixNodeSeed(seed, this.sector), cx, cy) : rt.kind[i];
     if (!kind) return null;
-    const nt = nodeTile(seed, this.sector, cx, cy), grown = rt.amount[i] > 0;
+    const res = this.nodeObj0(rt, seed, cx, cy, kind, border);
+    if (res && border) { res.obj.sel = null; res.obj.pick = null; } // неактивна смуга: лише вигляд
+    return res;
+  }
+  private nodeObj0(rt: ReturnType<typeof getSectorRt>, seed: number, cx: number, cy: number, kind: number, border: boolean): { row: number; obj: Obj } | null {
+    const i = cy * SECTOR_CELLS + cx;
+    const nt = nodeTile(seed, this.sector, cx, cy), grown = border || rt.amount[i] > 0;
     const px = (nt.x + 0.5) * TILE, py = (nt.y + 0.5) * TILE, tile = { x: nt.x, y: nt.y };
     const base = planeToIso(px, py, 0);
     const row = Math.min(NB - 1, Math.max(0, Math.floor(nt.y / BUCKET)));

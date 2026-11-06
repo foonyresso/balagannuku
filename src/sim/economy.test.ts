@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../shared';
-import { DEFAULT_TRAIL_THRESHOLDS, RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
+import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE, DEFAULT_TRAIL_THRESHOLDS, RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
 import { decayTrails, stepOn, residents, buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
 import { findPath, setRoadPull } from './path';
 import { ROAD_SPEED_MULT } from '../shared';
@@ -24,6 +24,8 @@ export function setup(seed = 7): SimWorld {
   return w;
 }
 /** Координати тестів задані відносно центру колишнього 64-клітинкового сектора. */
+/** Тайли неактивної смуги завжди зайняті. */
+const BORDER_OCC = SECTOR_SIZE * SECTOR_SIZE - (ACTIVE_MAX_TILE - ACTIVE_MIN_TILE) ** 2;
 const OFF = SECTOR_CELLS / 2 - 32;
 type Kind = 'lumberjack' | 'quarry' | 'sawmill' | 'warehouse' | 'house';
 /** Найближчий до (x0,y0) тайл, де кind можна поставити (за checkPlace). */
@@ -236,9 +238,9 @@ describe('економіка', () => {
     expect(checkPlace(w, 0, 'house', wh.cell.x + wh.size.w - 1, wh.cell.y)).toBe('occupied');
     expect(checkPlace(w, 0, 'house', -1, 5)).toBe('invalid');
     const rt = getSectorRt(w, 0);
-    expect(rt.occ.reduce((a, v) => a + v, 0)).toBe(t.size.w * t.size.h + wh.size.w * wh.size.h);
+    expect(rt.occ.reduce((a, v) => a + v, 0) - BORDER_OCC).toBe(t.size.w * t.size.h + wh.size.w * wh.size.h);
     applyCommand(w, { player: 'p', seq: 3, cmd: { type: 'demolish_building', building: wh.id } });
-    expect(rt.occ.reduce((a, v) => a + v, 0)).toBe(t.size.w * t.size.h);
+    expect(rt.occ.reduce((a, v) => a + v, 0) - BORDER_OCC).toBe(t.size.w * t.size.h);
   });
 
   it('стежки по тайлах: ходіння лишає вузький слід, стадії — по тайлах', () => {
