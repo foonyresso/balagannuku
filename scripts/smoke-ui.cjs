@@ -165,6 +165,20 @@ const check = (name, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', name
   check('клавіша 2 = 2×', (await st()).speed === 2);
   await p.click('button[data-speed="1"]');
 
+  // Стабільність позицій кнопок при зміні динамічного тексту
+  const xs = () => p.evaluate(() => [...document.querySelectorAll('#citySpeed button, #cityBack, #cityTabs button')].map((e) => Math.round(e.getBoundingClientRect().left * 10) / 10));
+  const xs0 = await xs();
+  for (const t of ['', 'фактично ≈1.6×', 'фактично ≈100×', 'керує хост']) {
+    await p.evaluate((x) => { document.querySelector('#speedActual').textContent = x; }, t);
+    await p.evaluate((x) => { document.querySelector('#cityRes').textContent = x; }, t ? t.repeat(3) : 'Дерево: 5');
+    check(`кнопки не зсуваються при тексті «${t}»`, JSON.stringify(await xs()) === JSON.stringify(xs0));
+  }
+  await p.click('button[data-tab=people]');
+  const f0 = await p.evaluate(() => [...document.querySelectorAll('#peopleFilter button')].map((e) => Math.round(e.getBoundingClientRect().left)));
+  await p.evaluate(() => { document.querySelectorAll('#peopleFilter button').forEach((b, i) => { b.textContent = ['Усі (1)', 'Вільні (1234)', 'Зайняті (0)'][i]; }); });
+  check('фільтри Усі/Вільні/Зайняті не зсуваються при зміні лічильників', JSON.stringify(await p.evaluate(() => [...document.querySelectorAll('#peopleFilter button')].map((e) => Math.round(e.getBoundingClientRect().left)))) === JSON.stringify(f0));
+  await p.click('button[data-tab=people]');
+
   console.log('errors', errs.length ? errs : 'none');
   if (errs.length) fails++;
   await b.close(); process.exit(fails ? 1 : 0);

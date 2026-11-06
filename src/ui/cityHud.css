@@ -4,8 +4,9 @@
 #cityHud button:hover { background: #4b3e60; }
 #cityHud button.sel { outline: 2px solid #ffd54f; }
 #cityHud button.no { opacity: 0.55; }
+#cityRes { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #cityHud [hidden] { display: none !important; }
-#cityTop { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; gap: 1em;
+#cityTop { position: absolute; top: 0; left: 0; right: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 1em; font-variant-numeric: tabular-nums;
   padding: 0.4em 1em; background: rgba(20, 14, 28, 0.88); }
 #cityInfo { position: absolute; right: 0.8em; bottom: 9em; width: 21em; max-height: 60vh; overflow: auto; padding: 0.7em 0.9em;
   background: rgba(20, 14, 28, 0.94); border: 1px solid #665a78; border-radius: 0.6em; }
@@ -34,9 +35,12 @@
 #citySpeed { display: flex; align-items: center; gap: 0.25em; }
 #citySpeed button { min-width: 2.6em; padding: 0.2em 0.4em; }
 #citySpeed button:disabled { opacity: 0.6; cursor: default; }
-#speedActual { margin-left: 0.5em; color: #f9a; }
+#speedActual { display: inline-block; box-sizing: border-box; width: 11em; margin-left: 0.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #f9a; }
 #peopleFilter { display: flex; gap: 0.4em; margin-bottom: 0.4em; }
 #infoSlots { display: flex; align-items: center; gap: 0.5em; margin-top: 0.5em; }
 #infoSlots span { color: #9a90aa; flex: 1; }
 #infoAssign { display: flex; flex-wrap: wrap; gap: 0.3em; }
 #infoAssign h4 { flex-basis: 100%; }
+#slotNum { display: inline-block; min-width: 3.5em; text-align: center; font-variant-numeric: tabular-nums; }
+#peopleFilter button { min-width: 8.5em; font-variant-numeric: tabular-nums; }
+#cityBack { white-space: nowrap; }
