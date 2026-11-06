@@ -48,6 +48,9 @@
         box.textContent += '[' + where + '] ' + msg + '\n';
         box.style.display = 'block';
       };
+      setTimeout(function () {
+        if (!window.__appStarted) window.__showError('старт', 'Скрипт гри не виконався. Якщо в мітці збірки лишився __BUILD__, Cloudflare віддає вихідний index.html без збірки: потрібні Build command "npm run build" і Build output directory "dist".');
+      }, 3000);
       window.addEventListener('error', function (ev) { window.__showError('помилка', ev.error || ev.message); });
       window.addEventListener('unhandledrejection', function (ev) { window.__showError('promise', ev.reason); });
     </script>

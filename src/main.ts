@@ -6,7 +6,8 @@ import { canClaimStart, claimStart, createInitialState, DEFAULT_WORLD_RADIUS, SE
 import { mulberry32 } from './sim/rng';
 import { mountLobby } from './ui';
 
-declare global { interface Window { __showError?: (where: string, e: unknown) => void } }
+declare global { interface Window { __appStarted?: boolean; __showError?: (where: string, e: unknown) => void } }
+window.__appStarted = true;
 const showError = (where: string, e: unknown) => window.__showError?.(where, e);
 
 // 1) Лобі — першим і окремо: працює навіть якщо графіка чи карта зламані.
