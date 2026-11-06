@@ -84,6 +84,7 @@ describe('економіка', () => {
     const sm = place(w, 'sawmill', 33, 31);
     const lj = place(w, 'lumberjack', 36, 31);
     sm.stock.wood = 15;
+    w.npc.manual.fill(1); // вільні лишаються вільними (без автопризначення на лісопилку)
     staffBuilding(w, 'p', lj.id, 2);
     run(w, 400);
     const e = w.state.flows.total.edges;
@@ -256,6 +257,29 @@ describe('економіка', () => {
     expect(ok.version).toBe(3);
     expect(ok.state.sectors[0].trails).toBeNull();
     expect(() => MIGRATIONS[2]({ ...base, state: { ...base.state, buildings: [{}] } })).toThrow(/нову гру/);
+  });
+
+  it('автопризначення: новий житель із дому йде на вакантне місце в старій будівлі', () => {
+    const w = setup();
+    // 5 стартових поселенців заповнюють лісоруба; вільних немає
+    const lj = place(w, 'lumberjack', 40, 30);
+    expect(staffBuilding(w, 'p', lj.id)).toBe(5);
+    lj.workers.slice(0, 2).forEach((id) => applyCommand(w, { player: 'p', seq: 1, cmd: { type: 'assign_worker', npc: id, profession: 'lumberjack', building: null } }));
+    // зняті вручну — автопризначення їх не чіпає
+    run(w, 30);
+    expect(lj.workers.length).toBe(3);
+    // збудували дім: з'являється житель і сам іде до лісоруба (там є вакансії)
+    place(w, 'house', 20, 20);
+    const before = w.state.npcs.count;
+    run(w, 500);
+    expect(w.state.npcs.count).toBeGreaterThan(before);
+    expect(lj.workers.length).toBe(3 + (w.state.npcs.count - before));
+    // потім лісопильня: наступний житель іде до неї (там менше працівників)
+    const sm = place(w, 'sawmill', 24, 24);
+    run(w, 700);
+    expect(w.state.npcs.count).toBeGreaterThan(before + 1);
+    expect(sm.workers.length).toBeGreaterThanOrEqual(1);
+    expect(lj.workers.length + sm.workers.length).toBe(w.state.npcs.count - 2);
   });
 
   it('команди: відмови без ресурсів, зайнята клітинка, чужі', () => {

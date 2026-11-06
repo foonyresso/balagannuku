@@ -1,8 +1,8 @@
 import type {
   BuildingKind, BuildingState, CommandEnvelope, CommandRejectReason, CommandResult, ResourceKind,
 } from '../shared';
-import { PROFESSIONS } from '../shared';
 import { COSTS, FOOTPRINT, JOB_OF, MAX_WORKERS, PLACE_MARGIN, START_SETTLERS, START_STOCK, STORAGE_CAP } from './balance';
+import { assignNpc, unassignNpc } from './assign';
 import { spawnNpc } from './npcs';
 import { syncPlayerResources } from './step';
 import { C as CELLS, CENTER_TILE, NODE_NONE, T as TILES, TPC, getSectorRt, markFootprint, nodeTile, rebuildIndex, type SimWorld } from './world';
@@ -93,14 +93,7 @@ function pay(w: SimWorld, owner: string, cost: Partial<Record<ResourceKind, numb
   }
 }
 
-function unassign(w: SimWorld, npc: number): void {
-  const cur = w.npc.workplace[npc];
-  const b = cur >= 0 ? w.byId.get(cur) : undefined;
-  if (b) b.workers = b.workers.filter((id) => id !== npc);
-  const n = w.state.npcs;
-  w.npc.workplace[npc] = -1; w.npc.phase[npc] = 0; w.npc.path[npc] = null;
-  n.profession[npc] = 0; n.task[npc] = 0;
-}
+const unassign = unassignNpc;
 
 function validNpc(w: SimWorld, player: string, npc: number): boolean {
   const n = w.state.npcs;
@@ -146,16 +139,13 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
     }
     case 'assign_worker': {
       if (!validNpc(w, player, cmd.npc)) return no('not_owner');
-      if (cmd.building === null) { unassign(w, cmd.npc); return { ok: true }; }
+      if (cmd.building === null) { unassign(w, cmd.npc); w.npc.manual[cmd.npc] = 1; return { ok: true }; }
       const b = w.byId.get(cmd.building);
       if (!b || b.owner !== player) return no('not_owner');
       if (JOB_OF[b.kind] !== cmd.profession) return no('invalid');
       if (!b.workers.includes(cmd.npc) && b.workers.length >= (MAX_WORKERS[b.kind] ?? 0)) return no('occupied');
       if (w.state.npcs.sector[cmd.npc] !== b.sector) return no('invalid');
-      unassign(w, cmd.npc);
-      b.workers.push(cmd.npc);
-      w.npc.workplace[cmd.npc] = b.id;
-      w.state.npcs.profession[cmd.npc] = PROFESSIONS.indexOf(cmd.profession);
+      assignNpc(w, cmd.npc, b);
       return { ok: true };
     }
     case 'set_building_paused': {
@@ -169,6 +159,7 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
     case 'unassign_worker':
       if (!validNpc(w, player, cmd.npc)) return no('not_owner');
       unassign(w, cmd.npc);
+      w.npc.manual[cmd.npc] = 1;
       return { ok: true };
     default:
       return no('invalid'); // решта команд — поза етапом економіки
