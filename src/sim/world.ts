@@ -4,6 +4,7 @@ import type {
 } from '../shared';
 import { NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, stageFromTraffic } from '../shared';
 import { hash2 } from './rng';
+import { refreshClear } from './clear';
 import { genNode } from './nodegen';
 import { NPC_CAPACITY, STONE_AMOUNT, TREE_AMOUNT } from './balance';
 import { createInitialState } from './worldgen';
@@ -25,7 +26,8 @@ export interface SectorRt {
   stage: Uint8Array; // стадія стежки по тайлах
   cellStage: Uint8Array; // макс. стадія тайлів у клітинці (для вартості A*)
   occ: Uint8Array; // тайл зайнятий footprint будівлі
-  blocked: Uint8Array; // клітинка: скільки будівель її перекривають (навігація)
+  blocked1: Uint8Array; // клітинка без вільних вузлів для малого NPC (1 тайл)
+  blocked2: Uint8Array; // клітинка без вільних вузлів для стандартного NPC (2 тайли)
   kind: Uint8Array; // клітинка: вид вузла ресурсу (похідний від seed)
   amount: Uint8Array; // клітинка: стан вузла (0 = зрубано, відростає)
   forest: Uint8Array; // клітинка: 1 = є живе дерево (дорожче йти)
@@ -115,7 +117,7 @@ export function getSectorRt(w: SimWorld, id: number): SectorRt {
   const nc = C * C, nt = T * T;
   rt = {
     id, trails: createTrailLayer(), stage: new Uint8Array(nt), cellStage: new Uint8Array(nc), occ: new Uint8Array(nt),
-    blocked: new Uint8Array(nc), kind: new Uint8Array(nc), amount: new Uint8Array(nc), forest: new Uint8Array(nc), claimBy: new Int32Array(nc), buildings: [],
+    blocked1: new Uint8Array(nc), blocked2: new Uint8Array(nc), kind: new Uint8Array(nc), amount: new Uint8Array(nc), forest: new Uint8Array(nc), claimBy: new Int32Array(nc), buildings: [],
   };
   if (sec.trails) rt.trails.traffic = unpack(sec.trails);
   const saved = sec.nodes ? unpack<Uint8Array>(sec.nodes) : null;
@@ -144,9 +146,8 @@ export function markFootprint(rt: SectorRt, b: BuildingState, delta: 1 | -1): vo
   for (let y = b.cell.y; y < b.cell.y + b.size.h; y++) {
     for (let x = b.cell.x; x < b.cell.x + b.size.w; x++) rt.occ[y * T + x] = delta === 1 ? 1 : 0;
   }
-  const c0x = Math.floor(b.cell.x / TPC), c1x = Math.floor((b.cell.x + b.size.w - 1) / TPC);
-  const c0y = Math.floor(b.cell.y / TPC), c1y = Math.floor((b.cell.y + b.size.h - 1) / TPC);
-  for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) rt.blocked[cy * C + cx] += delta;
+  // карти прохідності класів розміру: клітинки навколо footprint (+запас під вершини й сусідні тайли)
+  refreshClear(rt.occ, rt.blocked1, rt.blocked2, Math.floor((b.cell.x - 2) / TPC), Math.floor((b.cell.x + b.size.w + 2) / TPC), Math.floor((b.cell.y - 2) / TPC), Math.floor((b.cell.y + b.size.h + 2) / TPC));
 }
 
 /** Оновити cellStage клітинки після зміни стадії тайла. */
@@ -203,6 +204,11 @@ export function deserialize(s: SerializedGameState): SimWorld {
   for (const [k, v] of Object.entries(pn)) if (typeof v !== 'number') npcs[k] = unpack(v);
   // Старі сейви (до v5) без імен/статів/перків: заповнюємо нормою
   if (!npcs.stats) npcs.stats = defaultStats(pn.capacity);
+  else if ((npcs.stats as Uint8Array).length !== pn.capacity * NPC_STAT_COUNT) { // старий stride статів (до size)
+    const old = npcs.stats as Uint8Array, oldN = old.length / pn.capacity, fresh = defaultStats(pn.capacity);
+    for (let i = 0; i < pn.capacity; i++) for (let s = 0; s < Math.min(oldN, NPC_STAT_COUNT); s++) fresh[i * NPC_STAT_COUNT + s] = old[i * oldN + s];
+    npcs.stats = fresh;
+  }
   if (!npcs.nameId) npcs.nameId = new Uint16Array(pn.capacity);
   if (!npcs.perks) npcs.perks = new Uint16Array(pn.capacity);
   const w = wrapState({ ...rest, npcs: npcs as unknown as NpcStore }, pn.capacity);

@@ -8,7 +8,7 @@ import {
   ROAD_CHECK_INTERVAL, TRAIL_DECAY_BY_STAGE, STONE_AMOUNT, STORAGE_CAP, TREE_AMOUNT, TREE_REGROW_INTERVAL, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
 } from './balance';
 import { flowConsume, flowEdge, flowProduce, flowStarve, rollFlowWindow } from './flow';
-import { findPath } from './path';
+import { planRoute, sizeClassOf } from './route';
 import {
   C as CELLS, NODE_STONE, NODE_TREE, T as TILES, TPC, cellOfTile, getSectorRt, nodeTile, refreshCellStage,
   type SectorRt, type SimWorld,
@@ -71,46 +71,16 @@ function nearestAcceptor(rt: SectorRt, owner: string, x: number, y: number, kind
   return best;
 }
 
-/** Видимість між двома точками (у тайлах) за footprint будівель, із запасом ±1 тайл; кінці (3 тайли) не перевіряються. */
-function visible(rt: SectorRt, x0: number, y0: number, x1: number, y1: number): boolean {
-  const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
-  const steps = Math.ceil(len / 2);
-  const occ = rt.occ;
-  for (let k = 1; k < steps; k++) {
-    const f = k / steps;
-    if (len * f < 3 || len * (1 - f) < 3) continue;
-    const tx = Math.floor(x0 + dx * f), ty = Math.floor(y0 + dy * f);
-    const i = ty * TILES + tx;
-    if (occ[i] || occ[i - 1] || occ[i + 1] || occ[i - TILES] || occ[i + TILES]) return false;
-  }
-  return true;
-}
-
-const LOOKAHEAD = 8;
 /**
- * Шлях до тайла (gx,gy): A* по грубих клітинках навігації, далі спрощення за видимістю
- * (прямі відрізки в тайлах). Один раз на подорож. Шлях зберігається як пари (x,y) у тайлах.
+ * Шлях до тайла (gx,gy): маршрут за розміром NPC (planRoute: грубий A* + прямі за тайловою прохідністю).
+ * Один раз на подорож. Шлях зберігається як пари (x,y) у тайлах.
  */
 function setPath(w: SimWorld, i: number, rt: SectorRt, gx: number, gy: number): boolean {
   const n = w.state.npcs;
   const sx = n.x[i], sy = n.y[i];
-  const sc = cellOfTile(Math.floor(sx), Math.floor(sy)), gc = cellOfTile(gx, gy);
-  const cells = findPath(rt, sc % CELLS, (sc / CELLS) | 0, gc % CELLS, (gc / CELLS) | 0);
   w.npc.pathPos[i] = 0;
-  if (!cells) { w.npc.path[i] = null; return false; }
-  const m = cells.length;
-  const px: number[] = [sx], py: number[] = [sy];
-  for (let k = 0; k < m - 1; k++) { px.push((cells[k] % CELLS) * TPC + TPC / 2); py.push(Math.floor(cells[k] / CELLS) * TPC + TPC / 2); }
-  px.push(gx + 0.5); py.push(gy + 0.5);
-  const out: number[] = [];
-  const last = px.length - 1;
-  let a = 0;
-  while (a < last) {
-    let b = Math.min(last, a + LOOKAHEAD);
-    while (b > a + 1 && !visible(rt, px[a], py[a], px[b], py[b])) b--;
-    out.push(px[b], py[b]);
-    a = b;
-  }
+  const out = planRoute(rt, sizeClassOf(w, i), sx, sy, gx, gy);
+  if (!out) { w.npc.path[i] = null; return false; }
   w.npc.path[i] = Float32Array.from(out);
   w.npc.tile[i] = Math.floor(sy) * TILES + Math.floor(sx);
   return true;
