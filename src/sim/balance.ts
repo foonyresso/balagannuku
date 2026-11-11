@@ -70,7 +70,7 @@ export const FOOTPRINT: Partial<Record<BuildingKind, { w: number; h: number }>> 
 /** Непрохідна частина footprint (відносно лівого верхнього тайла): решта footprint — прохідне поле. Без запису — суцільний footprint. */
 export const SOLID_RECT: Partial<Record<BuildingKind, { x: number; y: number; w: number; h: number }>> = { farm: { x: 0, y: 0, w: 5, h: 5 } };
 /** Візуальний розмір у тайлах (без жорсткої колізії): NPC 2×2, дерево 3×3, камінь 4×4. */
-export const NPC_TILES = 2, TREE_TILES = 3, STONE_TILES = 4;
+export const NPC_TILES = 2, TREE_TILES = 3, STONE_TILES = 12;
 /** Скільки тайлів навколо footprint має бути вільним від вузлів ресурсів при будівництві. */
 export const PLACE_MARGIN = 1;
 
