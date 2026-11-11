@@ -733,8 +733,8 @@ describe('риболовля', () => {
     expect(checkPlace(w, 0, 'fisher', hall(w).cell.x + 40, hall(w).cell.y)).toBe('invalid'); // далеко від води
     const sh = shoreNear(w, 0, wx, wy, 300)!;
     let at: { x: number; y: number } | null = null;
-    for (let d = 0; d < 20 && !at; d++) for (let dy = -d; dy <= d && !at; dy++) for (let dx = -d; dx <= d && !at; dx++) {
-      const x = sh.x + dx - 4, y = sh.y + dy - 9;
+    for (let d = 0; d < 32 && !at; d++) for (let dy = -d; dy <= d && !at; dy++) for (let dx = -d; dx <= d && !at; dx++) {
+      const x = sh.x + dx, y = sh.y + dy;
       if (checkPlace(w, 0, 'fisher', x, y) === null) at = { x, y };
     }
     expect(at).not.toBeNull();

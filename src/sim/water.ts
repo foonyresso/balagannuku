@@ -3,7 +3,7 @@ import { fbm } from './noise';
 import { hash2 } from './rng';
 
 /**
- * Вода (озера й річки): ЧИСТА функція світових координат тайла (seed, tx, ty) — безшовна, без залежності від меж секторів,
+ * Вода (лише кілька озер, без річок): ЧИСТА функція світових координат тайла (seed, tx, ty) — безшовна, без залежності від меж секторів,
  * у сейві не зберігається (виводиться з seed). Вода — лише в активній зоні, не ближче WATER.clearRadius клітинок до ратуші;
  * гарантоване «домашнє» озеро в досяжній відстані від старту. Непрохідна для NPC, на ній не можна будувати.
  */
@@ -12,11 +12,10 @@ export interface WaterConfig {
   homeDist: number; // відстань (клітинок) від ратуші до центру домашнього озера
   homeRadius: number; // базовий радіус домашнього озера (клітинок)
   lakeScale: number; lakeThreshold: number; // шум озер (на тайл)
-  riverScale: number; riverWidth: number; riverGate: number; // річки: вузька смуга ізолінії шуму, що переривається «воротами»
 }
 export const WATER: WaterConfig = {
   clearRadius: 40, homeDist: 62, homeRadius: 14,
-  lakeScale: 0.0035, lakeThreshold: 0.70, riverScale: 0.0028, riverWidth: 0.006, riverGate: 0.5,
+  lakeScale: 0.0035, lakeThreshold: 0.82,
 };
 const DEFAULT_WATER = { ...WATER };
 export function configureWater(p: Partial<WaterConfig>): void { Object.assign(WATER, p); }
@@ -33,15 +32,13 @@ export function homeLake(seed: number): { x: number; y: number; r: number } {
 
 const STEP = 8; // крок ґратки шуму (тайлів): поля гладкі, між вузлами — білінійна інтерполяція
 const offs = (seed: number) => ({ ox: (Math.abs(seed) % 1009) * 7.3, oy: (Math.abs(seed >> 8) % 997) * 3.1 });
-/** Три гладких поля у вузлі ґратки (i, j) -> тайл (i·STEP, j·STEP): озера, ізолінія річки, «ворота» річки. */
+/** Гладке поле озер у вузлі ґратки (i, j) -> тайл (i·STEP, j·STEP). */
 function sampleFields(seed: number, i: number, j: number, out: Float32Array, k: number): void {
   const c = WATER, { ox, oy } = offs(seed), x = i * STEP, y = j * STEP;
   out[k] = fbm(x * c.lakeScale + ox, y * c.lakeScale + oy, 707);
-  out[k + 1] = fbm(x * c.riverScale * 1.7 + oy, y * c.riverScale * 1.7 + ox, 909) - 0.5;
-  out[k + 2] = fbm(x * 0.002 + ox, y * 0.002 + oy, 505);
 }
-/** Остаточне рішення для тайла за інтерпольованими полями L, R, G (+ мікро-шум берега, щоб він не був гладким). */
-function decide(seed: number, hl: { x: number; y: number; r: number }, tx: number, ty: number, L: number, R: number, G: number): boolean {
+/** Остаточне рішення для тайла за інтерпольованим полем L (+ мікро-шум берега, щоб він не був гладким). */
+function decide(seed: number, hl: { x: number; y: number; r: number }, tx: number, ty: number, L: number): boolean {
   if (tx < ACTIVE_MIN_TILE || ty < ACTIVE_MIN_TILE || tx >= ACTIVE_MAX_TILE || ty >= ACTIVE_MAX_TILE) return false;
   const c = WATER, ddx = tx - hl.x, ddy = ty - hl.y, dh2 = ddx * ddx + ddy * ddy, dh = Math.sqrt(dh2);
   if (dh2 < hl.r * hl.r * 2.56) { // форма озера: радіус збурюється шумом уздовж берега
@@ -51,45 +48,38 @@ function decide(seed: number, hl: { x: number; y: number; r: number }, tx: numbe
   const cx = tx - CENTER_TILE_W, cy = ty - CENTER_TILE_W, cr = c.clearRadius * TILES_PER_CELL;
   if (cx * cx + cy * cy < cr * cr) return false;
   const jit = (hash2(tx, ty, 0x77a1) - 0.5) * 0.012;
-  return L + jit > c.lakeThreshold || (Math.abs(R) < c.riverWidth + jit * 0.5 && G > c.riverGate);
+  return L + jit > c.lakeThreshold;
 }
 
 /** Чи вода в тайлі (tx, ty) — світові координати тайла. Збігається з fillWater. */
 export function waterAt(seed: number, tx: number, ty: number): boolean {
   const i = Math.floor(tx / STEP), j = Math.floor(ty / STEP), fx = (tx - i * STEP) / STEP, fy = (ty - j * STEP) / STEP;
-  const f = new Float32Array(12);
-  sampleFields(seed, i, j, f, 0); sampleFields(seed, i + 1, j, f, 3); sampleFields(seed, i, j + 1, f, 6); sampleFields(seed, i + 1, j + 1, f, 9);
-  const v = (o: number) => (f[o] * (1 - fx) + f[3 + o] * fx) * (1 - fy) + (f[6 + o] * (1 - fx) + f[9 + o] * fx) * fy;
-  return decide(seed, homeLake(seed), tx, ty, v(0), v(1), v(2));
+  const f = new Float32Array(4);
+  sampleFields(seed, i, j, f, 0); sampleFields(seed, i + 1, j, f, 1); sampleFields(seed, i, j + 1, f, 2); sampleFields(seed, i + 1, j + 1, f, 3);
+  return decide(seed, homeLake(seed), tx, ty, (f[0] * (1 - fx) + f[1] * fx) * (1 - fy) + (f[2] * (1 - fx) + f[3] * fx) * fy);
 }
 
 /** Масово заповнити маску води (1 = вода) для тайлів size×size; швидко (ґратка + інтерполяція), результат збігається з waterAt. Повертає кількість водяних тайлів. */
 export function fillWater(seed: number, out: Uint8Array, size: number): number {
-  const n = Math.ceil(size / STEP) + 2, grid = new Float32Array(n * n * 3);
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) sampleFields(seed, i, j, grid, (j * n + i) * 3);
+  const n = Math.ceil(size / STEP) + 2, grid = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) sampleFields(seed, i, j, grid, j * n + i);
   let count = 0;
   const hl = homeLake(seed), c = WATER;
   const hlI0 = Math.floor((hl.x - hl.r * 1.7) / STEP), hlI1 = Math.floor((hl.x + hl.r * 1.7) / STEP);
   const hlJ0 = Math.floor((hl.y - hl.r * 1.7) / STEP), hlJ1 = Math.floor((hl.y + hl.r * 1.7) / STEP);
   for (let j = Math.floor(ACTIVE_MIN_TILE / STEP); j * STEP < ACTIVE_MAX_TILE && j * STEP < size; j++) {
     for (let i = Math.floor(ACTIVE_MIN_TILE / STEP); i * STEP < ACTIVE_MAX_TILE && i * STEP < size; i++) {
-      const a = (j * n + i) * 3, b = a + 3, cc = a + n * 3, d = cc + 3;
+      const a = j * n + i, b = a + 1, cc = a + n, d = cc + 1;
       const nearHome = i >= hlI0 && i <= hlI1 && j >= hlJ0 && j <= hlJ1;
       if (!nearHome) { // блок без шансу на воду пропускаємо
-        const lmax = Math.max(grid[a], grid[b], grid[cc], grid[d]);
-        const rmin = Math.min(Math.abs(grid[a + 1]), Math.abs(grid[b + 1]), Math.abs(grid[cc + 1]), Math.abs(grid[d + 1]));
-        const rs = grid[a + 1] > 0 === grid[b + 1] > 0 && grid[b + 1] > 0 === grid[cc + 1] > 0 && grid[cc + 1] > 0 === grid[d + 1] > 0;
-        const gmax = Math.max(grid[a + 2], grid[b + 2], grid[cc + 2], grid[d + 2]);
-        if (lmax < c.lakeThreshold - 0.03 && (gmax < c.riverGate - 0.03 || (rs && rmin > c.riverWidth + 0.05))) continue;
+        if (Math.max(grid[a], grid[b], grid[cc], grid[d]) < c.lakeThreshold - 0.03) continue;
       }
       for (let ty = j * STEP; ty < (j + 1) * STEP && ty < size; ty++) {
         const fy = (ty - j * STEP) / STEP;
         for (let tx = i * STEP; tx < (i + 1) * STEP && tx < size; tx++) {
           const fx = (tx - i * STEP) / STEP, w0 = (1 - fx) * (1 - fy), w1 = fx * (1 - fy), w2 = (1 - fx) * fy, w3 = fx * fy;
           const L = grid[a] * w0 + grid[b] * w1 + grid[cc] * w2 + grid[d] * w3;
-          const R = grid[a + 1] * w0 + grid[b + 1] * w1 + grid[cc + 1] * w2 + grid[d + 1] * w3;
-          const G = grid[a + 2] * w0 + grid[b + 2] * w1 + grid[cc + 2] * w2 + grid[d + 2] * w3;
-          if (decide(seed, hl, tx, ty, L, R, G)) { out[ty * size + tx] = 1; count++; }
+          if (decide(seed, hl, tx, ty, L)) { out[ty * size + tx] = 1; count++; }
         }
       }
     }
