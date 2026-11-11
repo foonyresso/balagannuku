@@ -25,6 +25,8 @@ const ST_WALK = statIndex('walk'), ST_CARRY = statIndex('carry'), ST_GATHER = st
 const hungerEff = (w: SimWorld, i: number): number => (w.state.npcs.fullness[i] < HUNGRY_BELOW ? HUNGRY_MULT : 1);
 const mul = (w: SimWorld, i: number, s: number): number => w.state.npcs.stats[i * NPC_STAT_COUNT + s] / 100;
 import { spawnNpc } from './npcs';
+import { rebalanceCamp, stepIdle } from './camp';
+import { CAMP_REBALANCE_TICKS } from '../shared';
 
 // Фази NPC
 export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7, WALK_HOME: 8, WORK_HOME: 9, CARRY_PICK: 10, CARRY_DROP: 11, EAT: 12, FARM_WALK: 13, FARM_WORK: 14 } as const;
@@ -521,12 +523,13 @@ export function stepWorld(w: SimWorld): void {
   w.npc.px.set(n.x); w.npc.py.set(n.y); // «попередня» позиція для інтерполяції в рендері
   s.tick++;
   const cap = n.capacity;
-  for (let i = 0; i < cap; i++) if (n.alive[i]) stepNpc(w, i);
+  for (let i = 0; i < cap; i++) if (n.alive[i]) { if (w.npc.workplace[i] < 0) stepIdle(w, i); else stepNpc(w, i); }
   if (s.tick % HUNGER_INTERVAL === 0) for (let i = 0; i < cap; i++) if (n.alive[i] && n.fullness[i] > 0) n.fullness[i]--;
   if (s.tick % TRAIL_DECAY_INTERVAL === 0) decayTrails(w);
   if (s.tick % ROAD_CHECK_INTERVAL === 0) updateRoadAttached(w);
   if (s.tick % TREE_REGROW_INTERVAL === 0) regrow(w);
   if (s.tick % 10 === 0) { syncPlayerResources(w); houses(w); autoStaffIdle(w); }
+  if (s.tick % CAMP_REBALANCE_TICKS === 0) rebalanceCamp(w);
   rollFlowWindow(w);
   if (w.stageChanges.length) {
     const groups = new Map<number, { sector: number; stage: number; cells: number[] }>();

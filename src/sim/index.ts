@@ -7,3 +7,4 @@ export * as balance from './balance';
 export * from './assign';
 export * from './residents';
 export { waterAt, fillWater, nearestShore, homeLake, WATER, configureWater, resetWater } from './water';
+export { campfireOf, campfireFor, hallOf, hitsCampPlaza, rebalanceCamp, roamTarget } from './camp';

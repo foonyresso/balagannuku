@@ -125,12 +125,12 @@ export class BPainter {
   crate(x: number, y: number, s = 2.6): void {
     this.box(x - s / 2, x + s / 2, y - s / 2, y + s / 2, 0, s, planks('#8a6a48', '#5a4030', 3), planks('#a8824e', '#6a4c38', 3));
   }
-  torch(x: number, z: number): void {
+  torch(x: number, z: number, lit = true): void {
     const y = this.yf + 0.5;
     this.wall(x - 0.3, x + 0.3, y, z - 2, z, plain('#3a2a28'));
     const f = this.P(x, y + 0.1, z + 0.6);
     rect(this.c, Math.round(f[0]) - 1, Math.round(f[1]) - 1, 2, 3, '#f08a2a'); rect(this.c, Math.round(f[0]) - 1, Math.round(f[1]) - 2, 1, 2, '#ffd25a');
-    this.fx.lights.push({ x, y: y + 1, z: z + 1, r: 36, rgb: '255,150,70', a: 0.7 });
+    if (lit) this.fx.lights.push({ x, y: y + 1, z: z + 1, r: 36, rgb: '255,150,70', a: 0.7 });
   }
 }
 
@@ -169,9 +169,10 @@ registerBuildingStyle('townhall', { zMax: 48, paint(p) {
   // дерев'яний пояс і колони
   p.wall(x0, x1, yf + 0.01, 14.5, 16, WOOD, 0.95);
   for (const cx of [x0 + 1.2, x1 - 1.2, w / 2 - 9, w / 2 + 9]) p.wall(cx - 1, cx + 1, yf + 0.02, 2.4, 20, planks('#4a3a30', '#2e2320'));
-  for (const cx of [w * 0.22, w * 0.78]) { p.window(cx, 10, 3.4, 5); p.window(cx - 0, 18, 0.01, 0.01, false); }
+  // у вікнах лише м'яке світло: основне джерело світла міста — вогнище перед ратушею, а не сама ратуша
+  for (const cx of [w * 0.22, w * 0.78]) { p.window(cx, 10, 3.4, 5, false); p.fx.lights.push({ x: cx, y: yf + 1, z: 10, r: 14, rgb: '255,190,90', a: 0.22 }); }
   p.door(w / 2, 8, 11, true);
-  p.torch(w / 2 - 6.5, 8.5); p.torch(w / 2 + 6.5, 8.5);
+  p.torch(w / 2 - 6.5, 8.5, false); p.torch(w / 2 + 6.5, 8.5, false);
   p.hip(x0, x1, yb, yf, 20, 20, 2.6, 10, ROOF_RED);
   // башточка з прапором на даху
   p.box(w / 2 - 3, w / 2 + 3, yb + 8, yb + 14, 26, 36, STONE, plain('#6a6468'));
@@ -181,7 +182,6 @@ registerBuildingStyle('townhall', { zMax: 48, paint(p) {
   for (let i = 0; i < 9; i++) { rect(p.c, Math.round(t[0]) + 1 + i, Math.round(t[1]) - 14 + (i >> 2), 1, 7 - (i > 5 ? i - 5 : 0), '#8f2f3a'); }
   rect(p.c, Math.round(t[0]) - 1, Math.round(t[1]) - 15, 3, 2, '#e0b84a');
   p.fx.smoke.push({ x: x0 + 6, y: yb + 4, z: 24 });
-  p.fx.lights.push({ x: w / 2, y: yf + 6, z: 4, r: 70, rgb: '255,170,80', a: 0.4 });
 } });
 
 registerBuildingStyle('warehouse', { zMax: 24, paint(p) {

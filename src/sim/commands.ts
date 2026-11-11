@@ -5,6 +5,7 @@ import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE } from '../shared';
 import { FISH_SHORE_RADIUS, COSTS, FOOTPRINT, JOB_OF, MAX_WORKERS, PLACE_MARGIN, START_SETTLERS, START_STOCK, STORAGE_CAP } from './balance';
 import { assignNpc, autoStaffIdle, slotsOf, unassignNpc } from './assign';
 import { spawnNpc } from './npcs';
+import { campfireOf, hitsCampPlaza } from './camp';
 import { syncPlayerResources } from './step';
 import { C as CELLS, CENTER_TILE, NODE_NONE, T as TILES, TPC, getSectorRt, markFootprint, shoreNear, nodeTile, rebuildIndex, type SimWorld } from './world';
 
@@ -38,6 +39,7 @@ export function checkPlace(w: SimWorld, sector: number, kind: BuildingKind, x: n
   for (let ty = y; ty <= y + fp.h; ty++) {
     for (let tx = x; tx < x + fp.w; tx++) if (rt.occ[ty * TILES + tx]) return 'occupied';
   }
+  if (hitsCampPlaza(w, sector, x, y, fp.w, fp.h + 1)) return 'occupied'; // площа вогнища
   const m = PLACE_MARGIN;
   const cx0 = Math.max(0, Math.floor((x - m) / TPC)), cx1 = Math.min(CELLS - 1, Math.floor((x + fp.w + m) / TPC));
   const cy0 = Math.max(0, Math.floor((y - m) / TPC)), cy1 = Math.min(CELLS - 1, Math.floor((y + fp.h + m) / TPC));
@@ -59,6 +61,7 @@ export function startCity(w: SimWorld, playerId: string): BuildingState | null {
   const fp = FOOTPRINT.townhall!;
   const hall = addBuilding(w, 'townhall', playerId, home, CENTER_TILE - (fp.w >> 1), CENTER_TILE - (fp.h >> 1));
   hall.stock = { ...START_STOCK };
+  campfireOf(w, hall); // зафіксувати місце вогнища, поки навколо вільно
   for (let k = 0; k < START_SETTLERS; k++) spawnNpc(w, pi, home, hall.entrance.x, hall.entrance.y);
   w.events.push({ e: 'building_placed', building: hall.id });
   syncPlayerResources(w);
