@@ -783,3 +783,17 @@ describe('риболовля', () => {
     expect(f.edges[`${b.id}>${hall(w).id}:food`] ?? 0).toBeGreaterThan(0);
   });
 });
+
+describe('згладжені шляхи по дорозі', () => {
+  it('маршрут іде клітинками зі стежкою, а не однією прямою; детермінований', () => {
+    const w = setup();
+    const rt = getSectorRt(w, 0), S = SECTOR_CELLS, x0 = S / 2 - 30, y = S / 2 - 40, P = 4;
+    rt.cellStage.fill(0);
+    for (let x = x0; x <= x0 + 20; x++) rt.cellStage[(y + (x > x0 + 10 ? 3 : 0)) * S + x] = TrailStage.Paved;
+    const args = [rt, 1, x0 * P + 2, y * P + 2, (x0 + 20) * P + 2, (y + 3) * P + 2] as const;
+    const route = planRoute(...args);
+    expect(route).not.toBeNull();
+    expect(planRoute(...args)).toEqual(route);
+    expect(route!.length / 2).toBeGreaterThanOrEqual(15);
+  });
+});

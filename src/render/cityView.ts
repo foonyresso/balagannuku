@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Sprite } from 'pixi.js';
 import type { BuildingKind } from '../shared';
-import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE, SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES, isActiveCell } from '../shared';
+import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE, SECTOR_CELLS, SECTOR_SIZE, ROAD_CURB, ROAD_RADIUS, isActiveCell } from '../shared';
 import { genBorderNode, mixNodeSeed } from '../sim/nodegen';
 import {
   applyCommand, checkPlace, getSectorRt, idleNpcs, slotsOf, nodeTile, staffBuilding, stepWorld, NODE_TREE, type SimWorld,
@@ -219,7 +219,7 @@ export class CityView {
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
       const x = gx + dx, y = gy + dy;
       if (x < 0 || y < 0 || x >= SECTOR_SIZE || y >= SECTOR_SIZE) continue;
-      const s2 = rt.stage[y * SECTOR_SIZE + x], half = (TRAIL_BRUSH_TILES[s2] - 1) / 2;
+      const s2 = rt.stage[y * SECTOR_SIZE + x], half = ROAD_RADIUS[s2] + 0.5;
       if (s2 > st && Math.abs(dx) <= half && Math.abs(dy) <= half) { st = s2; sx = x; sy = y; }
     }
     return st ? { t: 'road', x: sx, y: sy } : null;
@@ -422,17 +422,39 @@ export class CityView {
     this.root.addChild(g);
   }
 
-  /** Стежки й дороги поверх землі (сама трава — тайловий спрайт Surroundings.back): «пензель» шириною за стадією, два тони для живості. */
+  /**
+   * Стежки й дороги поверх землі. Кожна стадія — об'єднання капсул (круглі стики) між центрами сусідніх тайлів стадії ≥ st:
+   * краї рівні, кути згладжені, без зубців. Спершу темніший бордюр (ширший), потім заливка. Радіуси — ROAD_RADIUS.
+   */
   private rebuildGround(): void {
     const rt = getSectorRt(this.w, this.sector);
-    const g = this.ground;
+    const g = this.ground, T = SECTOR_SIZE;
     g.clear();
+    const disc = (cx: number, cy: number, r: number): number[] => {
+      const pts: number[] = [];
+      for (let k = 0; k < 14; k++) {
+        const a = (k / 14) * Math.PI * 2, v = planeToIso((cx + Math.cos(a) * r) * TILE, (cy + Math.sin(a) * r) * TILE);
+        pts.push(v.x, v.y);
+      }
+      return pts;
+    };
+    const cap = (ax: number, ay: number, bx: number, by: number, r: number): number[] => {
+      const dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy), nx = (-dy / l) * r, ny = (dx / l) * r;
+      return [[ax + nx, ay + ny], [bx + nx, by + ny], [bx - nx, by - ny], [ax - nx, ay - ny]].flatMap(([x, y]) => { const v = planeToIso(x * TILE, y * TILE); return [v.x, v.y]; });
+    };
+    const NB4 = [[1, 0], [0, 1], [1, 1], [-1, 1]];
     for (let st = 1; st <= 3; st++) {
-      const wd = TRAIL_BRUSH_TILES[st], off = (wd - 1) / 2;
-      for (let i = 0; i < rt.stage.length; i++) {
-        if (rt.stage[i] !== st) continue;
-        const tx = i % SECTOR_SIZE, ty = Math.floor(i / SECTOR_SIZE);
-        g.poly(this.quad(tx - off, ty - off, wd, wd)).fill(variant(tx, ty, 3, st) === 0 ? PALETTE.trailAlt[st] : PALETTE.trail[st]);
+      for (const [r, color] of [[ROAD_RADIUS[st] + ROAD_CURB, PALETTE.trailAlt[st]], [ROAD_RADIUS[st], PALETTE.trail[st]]] as const) {
+        for (let i = 0; i < rt.stage.length; i++) {
+          if (rt.stage[i] < st) continue;
+          const tx = i % T, ty = (i / T) | 0, cx = tx + 0.5, cy = ty + 0.5;
+          g.poly(disc(cx, cy, r)).fill(color);
+          for (const [dx, dy] of NB4) {
+            const nx = tx + dx, ny = ty + dy;
+            if (nx < 0 || ny < 0 || nx >= T || ny >= T || rt.stage[ny * T + nx] < st) continue;
+            g.poly(cap(cx, cy, nx + 0.5, ny + 0.5, r)).fill(color);
+          }
+        }
       }
     }
     this.groundDirty = false;

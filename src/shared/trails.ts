@@ -30,6 +30,10 @@ export interface TrailThresholds {
 export const DEFAULT_TRAIL_THRESHOLDS: TrailThresholds = { trampled: 8, road: 64, paved: 512 };
 /** Ширина «пензля» стежки в тайлах за стадією (для рендера й прикріплення). */
 export const TRAIL_BRUSH_TILES = [0, 1, 3, 5] as const;
+/** Радіус намальованої дороги (тайлів) за стадією: вужче за пензель-квадрат, краї — рівні капсули. */
+export const ROAD_RADIUS = [0, 0.45, 0.9, 1.35] as const;
+/** Додаткова смужка бордюру навколо дороги (тайлів). */
+export const ROAD_CURB = 0.12;
 export const TRAIL_HYSTERESIS = 0.8;
 
 export function stageFromTraffic(
