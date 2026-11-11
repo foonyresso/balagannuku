@@ -2,6 +2,7 @@ import { ensureAtlas } from './atlas';
 import { registerBuildingSprites } from './buildings';
 import { registerCharacters } from './characters';
 import { registerProps } from './props';
+import { registerAnimals } from './animals';
 
 export { spr, renderSprite, spriteIds, spriteDef } from './atlas';
 export { buildingArt } from './buildings';
@@ -9,6 +10,7 @@ export { Atmosphere, TIMES, makeVignette, nextTime, type TimeKey } from './atmos
 export { Particles } from './particles';
 export { makeGround } from './ground';
 export * from './characters';
+export { ANIMAL_IDLE_FRAMES, ANIMAL_SCALE, animalFrameId, animalWalkFrame, LOOK as ANIMAL_LOOK } from './animals';
 export { OAK_VARIANTS, PINE_VARIANTS, ROCK_VARIANTS, BUSH_VARIANTS, PROP_SCALE } from './props';
 
 /** Палітра місцевості (вода, стежки) — єдине місце. */
@@ -23,7 +25,7 @@ let registered = false, ready = false;
 export function registerStyleDefs(tile: number): void {
   if (registered) return;
   registered = true;
-  registerProps(); registerCharacters(); registerBuildingSprites(tile);
+  registerProps(); registerCharacters(); registerAnimals(); registerBuildingSprites(tile);
 }
 /** Реєструє й малює всі спрайти стилю в атласи (раз на запуск). tile — одиниць площини на тайл. */
 export function initStyle(tile: number): void {

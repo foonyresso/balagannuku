@@ -54,7 +54,7 @@ const ACT: Record<Tool, { angles: number[]; hit: number }> = {
   rod: { angles: [60, 70, 30, 15, 40, 55], hit: -1 },
 };
 /** Циклів дії за секунду. */
-export const actRate = (tool: Tool): number => ({ none: 1, sword: 1.2, axe: 1.4, pick: 1.2, hammer: 1.8, hoe: 1, saw: 1.6, bow: 0.5, rod: 0.3 })[tool];
+export const actRate = (tool: Tool): number => ({ none: 1, sword: 1.2, axe: 1.4, pick: 1.2, hammer: 1.8, hoe: 1, saw: 1.6, bow: 1.25, rod: 0.3 })[tool];
 export const actFrames = (tool: Tool): number => ACT[tool].angles.length;
 export const hitFrame = (tool: Tool): number => ACT[tool].hit;
 export const toolOf = (cls: string): Tool => (CLASSES[cls] ?? CLASSES.civ).tool;

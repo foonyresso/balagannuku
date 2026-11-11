@@ -1,7 +1,7 @@
 import type { SerializedGameState } from './state';
 
 /** Поточна версія формату сейва. Підвищуй при КОЖНІЙ зміні форми SerializedGameState. */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 export const SAVE_MAGIC = 'balagannuku-save';
 export const SAVE_EXTENSION = '.save';
 
@@ -78,6 +78,8 @@ export const MIGRATIONS: Record<number, SaveMigration> = {
   },
   // v8 -> v9: ситість NPC (fullness) і ферма/фермер; масив fullness створює deserialize (повна ситість).
   8: (old) => ({ ...(old as object), version: 9 }),
+  // v9 -> v10: дика фауна (fauna); порожню створює wrapState, звірі з'являються самі.
+  9: (old) => ({ ...(old as object), version: 10 }),
 };
 
 export function migrateSave(raw: { version: number }): SaveFile {

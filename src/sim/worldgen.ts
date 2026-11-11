@@ -1,5 +1,5 @@
 import type { GameState, PlayerState, ResourceKind, SectorState } from '../shared';
-import { MIN_START_DISTANCE, createFlowLedger } from '../shared';
+import { MIN_START_DISTANCE, createFauna, createFlowLedger } from '../shared';
 import { fbm } from './noise';
 import { hexDisc, hexDistance } from './hex';
 
@@ -43,6 +43,7 @@ export function createInitialState(
     buildings: [],
     nextBuildingId: 1,
     flows: createFlowLedger(),
+    fauna: createFauna(),
   };
 }
 

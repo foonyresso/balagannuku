@@ -15,6 +15,8 @@ import {
 } from './world';
 import { autoStaffIdle } from './assign';
 import { hash2 } from './rng';
+import { AIM_TICKS, CHASE_GIVEUP, HIT_CHANCE, SHOOT_RANGE, findPrey, getAnimal, isAlive, killAnimal, removeAnimal, scareAnimal, stepFauna } from './fauna';
+import { ANIMALS } from '../shared';
 import { FLOW_PEOPLE, NPC_STAT_COUNT, statIndex } from '../shared';
 import { FISH_SHORE_RADIUS, FISH_TICKS } from './balance';
 import { EAT_BELOW, FARM_CARRY, FARM_TICKS, FOOD_RESTORE, FULL_MAX, HUNGER_INTERVAL, HUNGRY_BELOW, HUNGRY_MULT } from './balance';
@@ -27,8 +29,8 @@ const mul = (w: SimWorld, i: number, s: number): number => w.state.npcs.stats[i 
 import { spawnNpc } from './npcs';
 
 // Фази NPC
-export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7, WALK_HOME: 8, WORK_HOME: 9, CARRY_PICK: 10, CARRY_DROP: 11, EAT: 12, FARM_WALK: 13, FARM_WORK: 14 } as const;
-const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT, WALK_HOME, WORK_HOME, CARRY_PICK, CARRY_DROP, EAT, FARM_WALK, FARM_WORK } = PHASE;
+export const PHASE = { PLAN: 0, WALK_NODE: 1, WORK_NODE: 2, WALK_DEPOSIT: 3, WALK_TAKE: 4, WALK_MILL: 5, WORK_MILL: 6, WAIT: 7, WALK_HOME: 8, WORK_HOME: 9, CARRY_PICK: 10, CARRY_DROP: 11, EAT: 12, FARM_WALK: 13, FARM_WORK: 14, HUNT_CHASE: 15, HUNT_AIM: 16, HUNT_FETCH: 17 } as const;
+const { PLAN, WALK_NODE, WORK_NODE, WALK_DEPOSIT, WALK_TAKE, WALK_MILL, WORK_MILL, WAIT, WALK_HOME, WORK_HOME, CARRY_PICK, CARRY_DROP, EAT, FARM_WALK, FARM_WORK, HUNT_CHASE, HUNT_AIM, HUNT_FETCH } = PHASE;
 const T = (n: (typeof TASKS)[number]) => TASKS.indexOf(n);
 const WOOD = RESOURCE_KINDS.indexOf('wood'), STONE = RESOURCE_KINDS.indexOf('stone'), PLANKS = RESOURCE_KINDS.indexOf('planks');
 const HUNTER = PROFESSIONS.indexOf('hunter'), FISHER = PROFESSIONS.indexOf('fisher'), FARMER = PROFESSIONS.indexOf('farmer'), FOOD = RESOURCE_KINDS.indexOf('food');
@@ -193,6 +195,7 @@ function planDeposit(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): vo
 function plan(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): void {
   const n = w.state.npcs, npc = w.npc;
   if (n.fullness[i] < EAT_BELOW && planEat(w, i, rt, b)) return;
+  if (n.profession[i] === HUNTER) return planHunter(w, i, rt, b);
   if (n.profession[i] === FARMER || n.profession[i] === FISHER) return planFarmer(w, i, rt, b);
   if (n.profession[i] === CARRIER) return planCarrier(w, i, rt, b);
   if (n.profession[i] === SAWYER) return planSawyer(w, i, rt, b);
@@ -226,6 +229,17 @@ function planEat(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): boolea
   }
   if (n.fullness[i] === 0 && !isFoodJob(n.profession[i])) { wait(w, i, b, 'no_food'); return true; }
   return false;
+}
+
+/** Мисливець: несе здобич; інакше обирає найближчого звіра й іде за ним (phase HUNT_CHASE, aux = id звіра). */
+function planHunter(w: SimWorld, i: number, rt: SectorRt, hut: BuildingState): void {
+  const n = w.state.npcs, npc = w.npc;
+  if (n.carryAmount[i] > 0) return planDeposit(w, i, rt, hut);
+  const prey = findPrey(w, rt.id, n.x[i], n.y[i], i);
+  if (!prey) return wait(w, i, hut, 'no_game');
+  if (!setPath(w, i, rt, Math.floor(prey.x), Math.floor(prey.y))) return wait(w, i, hut, 'no_path');
+  prey.by = i + 1; npc.aux[i] = prey.id; npc.timer[i] = CHASE_GIVEUP;
+  npc.phase[i] = HUNT_CHASE; n.task[i] = T('walk');
 }
 
 /** Фермер: іде до ферми, працює на полі (1 од. їжі за FARM_TICKS), набравши FARM_CARRY — несе до найближчого приймача. */
@@ -348,6 +362,47 @@ function stepNpc(w: SimWorld, i: number): void {
         st.stock.food = stockOf(st, 'food') - 1;
         n.fullness[i] = Math.min(FULL_MAX, n.fullness[i] + FOOD_RESTORE);
         flowConsume(w, st.id, 'food', 1); flowEdge(w, st.id, FLOW_PEOPLE, 'food', 1);
+      }
+      npc.phase[i] = PLAN;
+      break;
+    }
+    case HUNT_CHASE: {
+      const a = getAnimal(w, npc.aux[i]);
+      if (!a || !isAlive(a) || a.by !== i + 1 || --npc.timer[i] <= 0) { if (a && a.by === i + 1) a.by = 0; npc.phase[i] = PLAN; break; }
+      if (Math.hypot(a.x - n.x[i], a.y - n.y[i]) <= SHOOT_RANGE) {
+        npc.path[i] = null; npc.phase[i] = HUNT_AIM; npc.timer[i] = AIM_TICKS; n.task[i] = T('work');
+        break;
+      }
+      const path = npc.path[i];
+      const stale = !path || Math.hypot(path[path.length - 2] - a.x, path[path.length - 1] - a.y) > 8;
+      if (stale && (w.state.tick + i) % 4 === 0 && !setPath(w, i, rt, Math.floor(a.x), Math.floor(a.y))) { a.by = 0; npc.phase[i] = PLAN; break; }
+      if (npc.path[i]) advance(w, i, rt);
+      break;
+    }
+    case HUNT_AIM: {
+      const a = getAnimal(w, npc.aux[i]);
+      if (!a || !isAlive(a)) { npc.phase[i] = PLAN; break; }
+      if (--npc.timer[i] > 0) break;
+      const d = Math.hypot(a.x - n.x[i], a.y - n.y[i]);
+      if (d > SHOOT_RANGE + 3) { npc.phase[i] = HUNT_CHASE; npc.timer[i] = CHASE_GIVEUP; n.task[i] = T('walk'); break; }
+      if (hash2(i, w.state.tick, a.id) < HIT_CHANCE * mul(w, i, ST_GATHER)) {
+        killAnimal(a);
+        if (!setPath(w, i, rt, Math.floor(a.x), Math.floor(a.y))) { removeAnimal(w, a.id); npc.phase[i] = PLAN; break; }
+        npc.phase[i] = HUNT_FETCH; n.task[i] = T('walk');
+      } else { // промах: звір злякався й тікає, мисливець пробує знову
+        scareAnimal(a, n.x[i], n.y[i]); a.by = 0; npc.phase[i] = PLAN;
+      }
+      break;
+    }
+    case HUNT_FETCH: {
+      if (!advance(w, i, rt)) break;
+      const a = getAnimal(w, npc.aux[i]);
+      if (a && !isAlive(a)) {
+        const meat = ANIMALS[a.kind].meat;
+        removeAnimal(w, a.id);
+        n.carryKind[i] = FOOD; n.carryAmount[i] = meat; npc.stage[i] = 0;
+        w.why.delete(b.id);
+        flowProduce(w, b.id, 'food', meat); flowEdge(w, 0, b.id, 'food', meat);
       }
       npc.phase[i] = PLAN;
       break;
@@ -523,6 +578,7 @@ export function stepWorld(w: SimWorld): void {
   const cap = n.capacity;
   for (let i = 0; i < cap; i++) if (n.alive[i]) stepNpc(w, i);
   if (s.tick % HUNGER_INTERVAL === 0) for (let i = 0; i < cap; i++) if (n.alive[i] && n.fullness[i] > 0) n.fullness[i]--;
+  stepFauna(w);
   if (s.tick % TRAIL_DECAY_INTERVAL === 0) decayTrails(w);
   if (s.tick % ROAD_CHECK_INTERVAL === 0) updateRoadAttached(w);
   if (s.tick % TREE_REGROW_INTERVAL === 0) regrow(w);

@@ -3,7 +3,7 @@ import type { BuildingKind } from '../shared';
 import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE, SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES, isActiveCell } from '../shared';
 import { genBorderNode, mixNodeSeed } from '../sim/nodegen';
 import {
-  applyCommand, checkPlace, getSectorRt, idleNpcs, slotsOf, nodeTile, staffBuilding, stepWorld, NODE_TREE, type SimWorld,
+  PHASE, getAnimal, applyCommand, checkPlace, getSectorRt, idleNpcs, slotsOf, nodeTile, staffBuilding, stepWorld, NODE_TREE, type SimWorld,
 } from '../sim';
 import { FOOTPRINT, JOB_OF, MAX_WORKERS, NPC_TILES, STONE_TILES } from '../sim/balance';
 import { NPC_STAT_COUNT, PROFESSIONS, RESOURCE_KINDS, TASKS, statIndex } from '../shared';
@@ -13,6 +13,7 @@ import {
 } from './style';
 import { ISO_Y, clampCamInside, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
 import { Surroundings } from './surroundings';
+import { FaunaLayer } from './fauna';
 import { lerpPos, TickClock } from './interp';
 import { BuildingGhost } from './buildingGhost';
 import { CityHud } from '../ui/cityHud';
@@ -46,6 +47,7 @@ export class CityView {
   /** Шар глибини = ряд клітинок; у ньому дерева, споруди й жителі, відсортовані за zIndex (= y площини). */
   private rowCont: Container[] = [];
   private npcVis = new Map<number, NpcVis>();
+  private fauna!: FaunaLayer;
   private atmo: Atmosphere;
   private parts = new Particles();
   private animT = 0;
@@ -90,6 +92,7 @@ export class CityView {
       this.rowCont.push(c);
       this.root.addChild(c);
     }
+    this.fauna = new FaunaLayer(this.rowCont, TILE, BUCKET, NB);
     this.root.addChild(this.surroundings.front);
     this.drawFog();
     this.root.addChild(this.atmo.world, this.parts.layer);
@@ -552,6 +555,7 @@ export class CityView {
     const dt = Math.min(0.05, this.app.ticker.deltaMS / 1000);
     if (this.speed > 0) this.animT += dt;
     this.drawNpcs(dt);
+    this.fauna.update(this.w, this.sector, this.clock.alpha(performance.now()), this.animT, this.parts, dt, this.cam.zoom > 0.45);
     this.atmo.update(dt);
     this.parts.update(dt);
     this.emitAmbient(dt);
@@ -596,6 +600,8 @@ export class CityView {
       const moved = Math.hypot(px - v.lx, py - v.ly);
       if (Math.abs(px - v.lx) > 0.05) v.dir = px > v.lx ? 1 : -1;
       v.lx = px; v.ly = py; v.dist += moved;
+      let aim: { x: number; y: number } | null = null; // мисливець цілиться: дивиться на звіра, стріла летить до нього
+      if (npc.phase[i] === PHASE.HUNT_AIM) { const a = getAnimal(this.w, npc.aux[i]); if (a) { aim = { x: a.x * TILE, y: a.y * TILE }; v.dir = a.x >= tx ? 1 : -1; } }
       const cls = classOf(PROFESSIONS[n.profession[i]] ?? 'idle'), tool = toolOf(cls);
       const working = n.task[i] === WORK_TASK && moved < 0.05, walking = !working && moved > 0.02;
       let anim: 'idle' | 'walk' | 'act', fi: number;
@@ -606,7 +612,7 @@ export class CityView {
       const a = spr(frameId(cls, anim, fi));
       if (v.frame !== key) {
         v.s.texture = a.tex; v.s.anchor.set(a.ax / a.w, a.ay / a.h);
-        if (anim === 'act' && fi === hitFrame(tool) && zoomOk) this.emitHit(tool, px, py, v.dir);
+        if (anim === 'act' && fi === hitFrame(tool) && zoomOk) this.emitHit(tool, px, py, v.dir, aim);
         v.frame = key;
       }
       const small = n.stats[i * NPC_STAT_COUNT + SIZE_STAT] < 2 ? 0.82 : 1;
@@ -627,14 +633,17 @@ export class CityView {
   }
 
   /** Удар інструмента: тріски, іскри, пил, стріла. */
-  private emitHit(tool: Tool, px: number, py: number, dir: number): void {
+  private emitHit(tool: Tool, px: number, py: number, dir: number, aim: { x: number; y: number } | null = null): void {
     const P = this.parts, r = Math.random;
     const burst = (n: number, o: (k: number) => Parameters<Particles['emit']>[0]) => { for (let k = 0; k < n; k++) P.emit(o(k)); };
     if (tool === 'axe') burst(7, (k) => ({ x: px + dir * 5, y: py, z: 5, vx: dir * (6 + r() * 12), vz: 12 + r() * 14, g: 90, life: 0.6, col: k % 2 ? 0xd9b27a : 0x8a6238, size: 0.6 }));
     else if (tool === 'pick') burst(6, () => ({ x: px + dir * 5, y: py, z: 3, vx: dir * (4 + r() * 14), vz: 8 + r() * 14, g: 80, life: 0.35, col: 0xffe08a, size: 0.6, kind: 'spark' }));
     else if (tool === 'hammer' || tool === 'sword') burst(4, () => ({ x: px + dir * 5, y: py, z: 3, vx: dir * (4 + r() * 10), vz: 8 + r() * 10, g: 70, life: 0.35, col: 0xffe08a, size: 0.6, kind: 'spark' }));
     else if (tool === 'hoe') burst(5, () => ({ x: px + dir * 6, y: py, z: 1, vx: dir * (3 + r() * 6), vz: 5 + r() * 6, g: 40, life: 0.5, col: 0x8a6a3e, size: 0.7 }));
-    else if (tool === 'bow') P.emit({ x: px + dir * 3, y: py + 0.01, z: 6, vx: dir * 150, vz: 7, g: 40, life: 0.55, col: 0xe6dcc0, size: 1, kind: 'arrow' });
+    else if (tool === 'bow') {
+      const dx = aim ? aim.x - px : dir * 60, dy = aim ? aim.y - py : 0, d = Math.max(8, Math.hypot(dx, dy)), sp = 170, life = d / sp;
+      P.emit({ x: px + dir * 3, y: py + 0.01, z: 6, vx: (dx / d) * sp, vy: (dy / d) * sp, vz: (-4 + 20 * life * life) / life, g: 40, life, col: 0xe6dcc0, size: 1, kind: 'arrow' });
+    }
   }
 
   /** Дим із димарів і похідних вогнищ (лише у видимій частині екрана). */
@@ -734,13 +743,13 @@ export class CityView {
   }
 
   /** Для автотестів: стан вибору й екранні координати об'єктів. */
-  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; layers: { ground: number; base: number; ghost: number; hover: number }; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; time: string; lights: number; particles: number; npcSprites: number; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
+  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; layers: { ground: number; base: number; ghost: number; hover: number }; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; time: string; lights: number; particles: number; npcSprites: number; animals: number; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
     const scr = (x: number, y: number, z: number) => { const i = planeToIso(x * TILE, y * TILE, z); return { sx: i.x * this.cam.zoom + this.cam.x, sy: i.y * this.cam.zoom + this.cam.y }; };
     const n = this.w.state.npcs, npcs: { id: number; sx: number; sy: number }[] = [];
     for (let i = 0; i < n.capacity; i++) if (n.alive[i] && n.sector[i] === this.sector) npcs.push({ id: i, ...scr(this.npcXY(i).x, this.npcXY(i).y, 3) });
     const buildings = this.w.state.buildings.map((b) => ({ id: b.id, kind: b.kind, ...scr(b.cell.x + b.size.w / 2, b.cell.y + b.size.h / 2, 6) }));
     return { build: this.selected, sel: this.sel, following: this.following, ghost: this.ghost.g.visible && !!this.ghost.g.parent,
-      layers: { ground: this.root.getChildIndex(this.ground), base: this.ghost.base.parent ? this.root.getChildIndex(this.ghost.base) : -1, ghost: this.ghost.g.parent ? this.root.getChildIndex(this.ghost.g) : -1, hover: this.root.getChildIndex(this.hoverG) }, speed: this.speed, tick: this.w.state.tick, zoom: this.cam.zoom, npcs, time: this.atmo.key, lights: this.atmo.lightCount, particles: this.parts.count, npcSprites: this.npcVis.size, buildings };
+      layers: { ground: this.root.getChildIndex(this.ground), base: this.ghost.base.parent ? this.root.getChildIndex(this.ghost.base) : -1, ghost: this.ghost.g.parent ? this.root.getChildIndex(this.ghost.g) : -1, hover: this.root.getChildIndex(this.hoverG) }, speed: this.speed, tick: this.w.state.tick, zoom: this.cam.zoom, npcs, time: this.atmo.key, lights: this.atmo.lightCount, particles: this.parts.count, npcSprites: this.npcVis.size, animals: this.fauna.count, buildings };
   }
 
   destroy(): void {

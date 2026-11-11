@@ -7,3 +7,4 @@ export * as balance from './balance';
 export * from './assign';
 export * from './residents';
 export { waterAt, fillWater, nearestShore, homeLake, WATER, configureWater, resetWater } from './water';
+export * from './fauna';

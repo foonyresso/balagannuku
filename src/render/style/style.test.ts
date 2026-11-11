@@ -68,3 +68,25 @@ describe('варіанти', () => {
     for (let i = 0; i < 100; i++) { const v = variant(i, i * 3, 5); expect(v).toBe(variant(i, i * 3, 5)); expect(v).toBeGreaterThanOrEqual(0); expect(v).toBeLessThan(5); }
   });
 });
+
+describe('звірі', () => {
+  it('кожен вид має вигляд, кадри ходьби/спокою/смерті й малюється в межах полотна', async () => {
+    const { ANIMAL_KINDS } = await import('../../shared');
+    const { ANIMAL_LOOK, animalFrameId, animalWalkFrame, registerStyleDefs } = await import('./index');
+    const { spriteDef } = await import('./atlas');
+    registerStyleDefs(4);
+    for (const k of ANIMAL_KINDS) {
+      expect(ANIMAL_LOOK[k], k).toBeTruthy();
+      for (const id of [animalFrameId(k, 'idle', 0), animalFrameId(k, 'idle', 1), ...[0, 1, 2, 3].map((i) => animalFrameId(k, 'walk', i)), animalFrameId(k, 'dead', 0)]) {
+        const d = spriteDef(id)!;
+        expect(d, id).toBeTruthy();
+        let n = 0, bad = 0;
+        const ctx = { fillStyle: '', fillRect: (x: number, y: number, w: number, h: number) => { n++; if (x < 0 || y < 0 || x + w > d.w || y + h > d.h) bad++; } } as unknown as Ctx;
+        d.paint(ctx);
+        expect(n, id).toBeGreaterThan(10);
+        expect(bad, `${id} виходить за полотно`).toBe(0);
+      }
+      expect(new Set(Array.from({ length: 60 }, (_, i) => animalWalkFrame(k, i))).size).toBe(4);
+    }
+  });
+});

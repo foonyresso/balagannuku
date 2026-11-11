@@ -2,6 +2,7 @@ export * from './ids';
 export * from './constants';
 export * from './trails';
 export * from './flows';
+export * from './fauna';
 export * from './state';
 export * from './npc';
 export * from './commands';

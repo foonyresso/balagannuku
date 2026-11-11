@@ -19,7 +19,7 @@ export const BUILD_NAMES: Partial<Record<BuildingKind, string>> = {
 export const RES_NAMES: Record<string, string> = { wood: 'Дерево', stone: 'Камінь', planks: 'Дошки', food: 'Їжа' };
 export const WHY: Record<string, string> = {
   no_node: 'немає дерев/каменю в секторі', no_storage: 'немає куди віднести (склад?)', storage_full: 'склад повний',
-  no_wood: 'немає вільного дерева (резерв під будівництво)', no_path: 'немає шляху', no_food: 'немає їжі (голод)', no_water: 'немає берега', paused: 'на паузі',
+  no_wood: 'немає вільного дерева (резерв під будівництво)', no_path: 'немає шляху', no_food: 'немає їжі (голод)', no_game: 'немає дичини поблизу', no_water: 'немає берега', paused: 'на паузі',
 };
 export const STATE_TXT: Record<string, string> = {
   free: 'чекає роботу', to_node: 'іде до дерева/каменю', working: 'добуває ресурс', to_home: 'несе сировину до хатинки', processing: 'обтесує',

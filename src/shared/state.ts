@@ -4,6 +4,7 @@ import type {
 } from './ids';
 import type { PackedTrailLayer } from './trails';
 import type { FlowLedger } from './flows';
+import type { FaunaState } from './fauna';
 
 /**
  * Увесь стан гри — ОДНЕ дерево GameState. Нічого не живе поза ним.
@@ -21,6 +22,8 @@ export interface GameState {
   npcs: NpcStore;
   /** Облік потоків ресурсів (виробництво/споживання/ребра) для візуалізатора ланцюжків. */
   flows: FlowLedger;
+  /** Дикі звірі (полювання). Старі сейви без поля отримують порожню фауну. */
+  fauna: FaunaState;
 }
 
 export interface WorldState {

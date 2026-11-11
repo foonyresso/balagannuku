@@ -2,7 +2,7 @@ import type {
   BuildingId, BuildingState, GameEvent, GameState, NpcStore, PackedNpcStore, PlayerState, SectorState,
   SerializedGameState, TrailLayer,
 } from '../shared';
-import { BORDER_CELLS, NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, isActiveCell, isActiveTile, stageFromTraffic } from '../shared';
+import { BORDER_CELLS, createFauna, NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, isActiveCell, isActiveTile, stageFromTraffic } from '../shared';
 import { hash2 } from './rng';
 import { fillWater, nearestShore } from './water';
 import { refreshClear } from './clear';
@@ -205,6 +205,7 @@ export function rebuildIndex(w: SimWorld): void {
 
 export function wrapState(state: Omit<GameState, 'npcs'> & { npcs?: NpcStore }, capacity = NPC_CAPACITY): SimWorld {
   const full = state as GameState;
+  if (!full.fauna) full.fauna = createFauna(); // сейви до v10
   if (!full.npcs) full.npcs = createNpcStore(capacity);
   const w: SimWorld = {
     state: full, sectors: new Map(), npc: createNpcRt(full.npcs.capacity), byId: new Map(),
