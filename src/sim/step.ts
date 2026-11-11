@@ -17,7 +17,7 @@ import { autoStaffIdle } from './assign';
 import { hash2 } from './rng';
 import { FLOW_PEOPLE, NPC_STAT_COUNT, statIndex } from '../shared';
 import { FISH_SHORE_RADIUS, FISH_TICKS } from './balance';
-import { EAT_BELOW, FARM_CARRY, FARM_TICKS, FOOD_RESTORE, FULL_MAX, HUNGER_INTERVAL, HUNGRY_BELOW, HUNGRY_MULT } from './balance';
+import { SOLID_RECT, EAT_BELOW, FARM_CARRY, FARM_TICKS, FOOD_RESTORE, FULL_MAX, HUNGER_INTERVAL, HUNGRY_BELOW, HUNGRY_MULT } from './balance';
 
 const ST_WALK = statIndex('walk'), ST_CARRY = statIndex('carry'), ST_GATHER = statIndex('gather');
 /** Множник NPC за статом (1 = норма). */
@@ -167,6 +167,18 @@ function spotNear(rt: SectorRt, b: BuildingState, i: number): { x: number; y: nu
   return rt.occ[y * TILES + x] ? { x: b.entrance.x, y: b.entrance.y } : { x, y };
 }
 
+/** Точка на полі ферми (поза хатою): у кожного фермера своя, змінюється з кожним зібраним врожаєм. */
+function fieldSpot(rt: SectorRt, b: BuildingState, i: number, salt: number): { x: number; y: number } {
+  const sr = SOLID_RECT[b.kind];
+  for (let k = 0; k < 8; k++) {
+    const x = b.cell.x + 1 + Math.floor(hash2(i + k * 31, b.id, 13 + salt) * (b.size.w - 2));
+    const y = b.cell.y + 1 + Math.floor(hash2(b.id + k * 17, i, 19 + salt) * (b.size.h - 2));
+    const inHut = !!sr && x <= b.cell.x + sr.x + sr.w && y <= b.cell.y + sr.y + sr.h;
+    if (!inHut && !rt.occ[y * TILES + x]) return { x, y };
+  }
+  return { x: b.entrance.x, y: b.entrance.y };
+}
+
 /** Час дії: дорога прискорює; багатство сектора (richness) = щедрість, тобто швидкість видобутку. */
 const workTicks = (b: BuildingState, base: number, richness = 0.5) =>
   Math.max(1, Math.round((b.roadAttached ? base * ATTACHED_WORK_MULT : base) / (0.6 + 0.8 * richness)));
@@ -232,7 +244,7 @@ function planEat(w: SimWorld, i: number, rt: SectorRt, b: BuildingState): boolea
 function planFarmer(w: SimWorld, i: number, rt: SectorRt, farm: BuildingState): void {
   const n = w.state.npcs;
   if (n.carryAmount[i] >= FARM_CARRY) return planDeposit(w, i, rt, farm);
-  let sp = spotNear(rt, farm, i);
+  let sp = farm.kind === 'farm' ? fieldSpot(rt, farm, i, w.state.tick % 97) : spotNear(rt, farm, i);
   if (n.profession[i] === FISHER) { // риба: стоїмо на березі
     const sh = shoreNear(w, rt.id, farm.entrance.x, farm.entrance.y, FISH_SHORE_RADIUS + 4);
     if (!sh) return wait(w, i, farm, 'no_water');

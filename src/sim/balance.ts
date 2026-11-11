@@ -63,10 +63,12 @@ export const FOOTPRINT: Partial<Record<BuildingKind, { w: number; h: number }>> 
   quarry: { w: 8, h: 8 },
   sawmill: { w: 10, h: 10 },
   house: { w: 6, h: 6 },
-  farm: { w: 10, h: 10 },
+  farm: { w: 20, h: 20 }, // поле ≈ у 4 рази більше за площею; фермери працюють НА полі
   hunter: { w: 8, h: 8 },
   fisher: { w: 8, h: 8 },
 };
+/** Непрохідна частина footprint (відносно лівого верхнього тайла): решта footprint — прохідне поле. Без запису — суцільний footprint. */
+export const SOLID_RECT: Partial<Record<BuildingKind, { x: number; y: number; w: number; h: number }>> = { farm: { x: 0, y: 0, w: 5, h: 5 } };
 /** Візуальний розмір у тайлах (без жорсткої колізії): NPC 2×2, дерево 3×3, камінь 4×4. */
 export const NPC_TILES = 2, TREE_TILES = 3, STONE_TILES = 4;
 /** Скільки тайлів навколо footprint має бути вільним від вузлів ресурсів при будівництві. */

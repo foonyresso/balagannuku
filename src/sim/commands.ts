@@ -38,6 +38,9 @@ export function checkPlace(w: SimWorld, sector: number, kind: BuildingKind, x: n
   for (let ty = y; ty <= y + fp.h; ty++) {
     for (let tx = x; tx < x + fp.w; tx++) if (rt.occ[ty * TILES + tx]) return 'occupied';
   }
+  for (const o of rt.buildings) { // прохідне поле (ферма) не в occ: перевіряємо перетин повних footprint
+    if (x < o.cell.x + o.size.w && o.cell.x < x + fp.w && y < o.cell.y + o.size.h + 1 && o.cell.y < y + fp.h + 1) return 'occupied';
+  }
   const m = PLACE_MARGIN;
   const cx0 = Math.max(0, Math.floor((x - m) / TPC)), cx1 = Math.min(CELLS - 1, Math.floor((x + fp.w + m) / TPC));
   const cy0 = Math.max(0, Math.floor((y - m) / TPC)), cy1 = Math.min(CELLS - 1, Math.floor((y + fp.h + m) / TPC));

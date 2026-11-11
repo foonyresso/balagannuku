@@ -71,6 +71,8 @@ export class CityView {
   private boxEl = document.createElement('div');
   private rows: Obj[][] = Array.from({ length: NB }, () => []);
   private groundDirty = true;
+  /** Плоскі поля ферм: під об'єктами, щоб фермери на полі не ховались за спрайтом. */
+  private fieldLayer = new Container();
 
   constructor(private app: Application, private w: SimWorld, private player: string, private sector: number, private onExit: () => void,
     private net: { locked?: boolean; speed?: number; onSpeed?: (s: number) => void } = {}) {
@@ -84,6 +86,7 @@ export class CityView {
     this.root.addChild(this.ground);
     this.drawWater();
     this.root.addChild(this.shine);
+    this.root.addChild(this.fieldLayer);
     for (let r = 0; r < NB; r++) {
       const c = new Container();
       c.sortableChildren = true;
@@ -482,6 +485,11 @@ export class CityView {
       const pick = [corner.x - pad, topY, corner.x + bw + pad, topY, corner.x + bw + pad, corner.y + 2, corner.x - pad, corner.y + 2];
       for (const l of art.fx.lights) { const q = planeToIso(x0 + l.x, y0 + l.y, l.z); this.atmo.addLight(q.x, q.y, l.r, l.rgb, l.a, 0.8); }
       for (const m of art.fx.smoke) this.smokers.push({ x: x0 + m.x, y: y0 + m.y, z: m.z });
+      if (b.kind === 'farm') {
+        const f = buildingArt('farm_field', b.size.w, b.size.h, TILE).spr, fs = new Sprite(f.tex);
+        fs.anchor.set(f.ax / f.w, f.ay / f.h); fs.scale.set(f.scale); fs.position.set(corner.x, corner.y);
+        this.fieldLayer.addChild(fs); this.bldSpr.push(fs);
+      }
       out.push({ row: Math.min(NB - 1, Math.max(0, Math.floor((b.cell.y + b.size.h - 1) / BUCKET))), obj: {
         tile: b.cell, pick, sel: { t: 'building', id: b.id }, sprites: [s],
       } });

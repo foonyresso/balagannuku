@@ -7,7 +7,7 @@ import { hash2 } from './rng';
 import { fillWater, nearestShore } from './water';
 import { refreshClear } from './clear';
 import { genNode, mixNodeSeed } from './nodegen';
-import { NPC_CAPACITY, STONE_AMOUNT, TREE_AMOUNT } from './balance';
+import { NPC_CAPACITY, SOLID_RECT, STONE_AMOUNT, TREE_AMOUNT } from './balance';
 import { createInitialState } from './worldgen';
 import { pack, unpack } from './pack';
 
@@ -178,8 +178,9 @@ export function getSectorRt(w: SimWorld, id: number): SectorRt {
 
 /** Позначити (delta=1) або зняти (delta=-1) footprint будівлі в occ (тайли) і blocked (клітинки). */
 export function markFootprint(rt: SectorRt, b: BuildingState, delta: 1 | -1): void {
-  for (let y = b.cell.y; y < b.cell.y + b.size.h; y++) {
-    for (let x = b.cell.x; x < b.cell.x + b.size.w; x++) rt.occ[y * T + x] = delta === 1 ? 1 : 0;
+  const sr = SOLID_RECT[b.kind], sx = b.cell.x + (sr?.x ?? 0), sy = b.cell.y + (sr?.y ?? 0), sw = sr?.w ?? b.size.w, sh = sr?.h ?? b.size.h;
+  for (let y = sy; y < sy + sh; y++) {
+    for (let x = sx; x < sx + sw; x++) rt.occ[y * T + x] = delta === 1 ? 1 : 0;
   }
   // карти прохідності класів розміру: клітинки навколо footprint (+запас під вершини й сусідні тайли)
   refreshClear(rt.occ, rt.blocked1, rt.blocked2, Math.floor((b.cell.x - 2) / TPC), Math.floor((b.cell.x + b.size.w + 2) / TPC), Math.floor((b.cell.y - 2) / TPC), Math.floor((b.cell.y + b.size.h + 2) / TPC));

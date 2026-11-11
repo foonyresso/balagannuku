@@ -245,23 +245,29 @@ registerBuildingStyle('sawmill', { zMax: 22, paint(p) {
   p.fx.lights.push({ x: w / 2, y: yf, z: 6, r: 30, rgb: '255,190,90', a: 0.35 });
 } });
 
+/** Поле ферми: плоский шар під землею будівлі (по ньому ходять фермери), малюється окремим спрайтом. */
+registerBuildingStyle('farm_field', { zMax: 4, paint(p) {
+  const { w, d } = p;
+  const soil: Mat = (_x, y) => (y % 4 === 0 ? '#3f2e22' : y % 4 === 1 ? '#8a6a3e' : y % 4 === 2 ? '#a88c52' : '#6a4e30');
+  const crops: Mat = (x, y) => (y % 4 === 1 && x % 3 !== 0 ? (hash(x, y) < 0.5 ? '#7fa14c' : '#c8b24c') : y % 4 === 0 ? '#3f2e22' : y % 4 === 2 ? '#a88c52' : '#6a4e30');
+  p.top(1.5, w - 1.5, 20, d - 2.5, 0.1, soil, 1);
+  p.top(20, w - 1.5, 2.5, 20, 0.1, soil, 1);
+  p.top(5, w - 5, 24, d - 5, 0.12, crops, 1);
+  p.top(24, w - 5, 5, 24, 0.12, crops, 1);
+} });
+
 registerBuildingStyle('farm', { zMax: 18, paint(p) {
   const { w, d } = p;
-  p.yf = d - 2;
-  // поле з борознами (плоска грань) і сходами рослин
-  const soil: Mat = (_x, y) => (y % 4 === 0 ? '#3f2e22' : y % 4 === 1 ? '#8a6a3e' : y % 4 === 2 ? '#a88c52' : '#6a4e30');
-  p.top(1.5, w - 1.5, 10, d - 1.5, 0.1, soil, 1);
-  const crops: Mat = (x, y) => (y % 4 === 1 && x % 3 !== 0 ? (hash(x, y) < 0.5 ? '#7fa14c' : '#c8b24c') : y % 4 === 0 ? '#3f2e22' : y % 4 === 2 ? '#a88c52' : '#6a4e30');
-  p.top(5, w - 5, 12.5, d - 3, 0.12, crops, 1);
-  // хата-комора позаду зліва
-  p.box(1.8, 12, 2, 9.5, 0, 6.4, WOOD, plain('#3c2a24'));
-  p.yf = 9.5; p.door(7, 3, 4.6); p.window(10.4, 4.2, 1.8, 2);
-  p.gableFront(1.8, 12, 2, 9.5, 6.4, 5, 1.2, thatch('#c9a85a', '#8a6a38'), WOOD);
-  // тин
+  // хата-комора позаду зліва (поле лежить окремим плоским шаром)
+  p.yf = 17;
+  p.box(2, 17, 2, 17, 0, 6.4, WOOD, plain('#3c2a24'));
+  p.door(8, 3, 4.6); p.window(13.4, 4.2, 1.8, 2);
+  p.gableFront(2, 17, 2, 17, 6.4, 5, 1.2, thatch('#c9a85a', '#8a6a38'), WOOD);
+  // низький тин уздовж переднього краю
   for (let x = 2; x <= w - 2; x += 5) p.wall(x - 0.4, x + 0.4, d - 1, 0, 3, plain('#6a4c38'));
   p.wall(2, w - 2, d - 1, 1.2, 1.9, plain('#8a6a48')); p.wall(2, w - 2, d - 1, 2.3, 3, plain('#8a6a48'));
-  // опудало
-  const sx = w - 7, sy = 18;
+  // опудало посеред поля
+  const sx = w / 2, sy = d / 2 + 6;
   p.wall(sx - 0.3, sx + 0.3, sy, 0, 6, plain('#5a4030')); p.wall(sx - 2.4, sx + 2.4, sy + 0.01, 3.6, 4.2, plain('#6a4c38'));
   p.wall(sx - 1.1, sx + 1.1, sy + 0.02, 6, 7.8, plain('#d8c890')); p.wall(sx - 1.6, sx + 1.6, sy + 0.03, 7.6, 8.2, plain('#8f2f3a'));
 } });
@@ -345,5 +351,5 @@ export function buildingArt(kind: string, tw: number, th: number, tile: number):
 
 /** Реєструє спрайти всіх відомих споруд (атлас будується одним аркушем при старті). */
 export function registerBuildingSprites(tile: number): void {
-  for (const [kind, fp] of Object.entries(FOOTPRINT)) if (fp) defineBuilding(kind, fp.w, fp.h, tile);
+  for (const [kind, fp] of Object.entries(FOOTPRINT)) if (fp) { defineBuilding(kind, fp.w, fp.h, tile); if (kind === 'farm') defineBuilding('farm_field', fp.w, fp.h, tile); }
 }
