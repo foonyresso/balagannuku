@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../shared';
-import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE, DEFAULT_TRAIL_THRESHOLDS, RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
+import { TASKS, ACTIVE_MAX_TILE, ACTIVE_MIN_TILE, DEFAULT_TRAIL_THRESHOLDS, RESOURCE_KINDS, SECTOR_CELLS, SECTOR_SIZE, TrailStage } from '../shared';
 import { decayTrails, stepOn, residents, buildCheck, checkPlace, applyCommand, createWorld, getSectorRt, deserialize, serialize, startCity, staffBuilding, stepWorld, type SimWorld } from './index';
 import { findPath, setRoadPull } from './path';
 import { ROAD_SPEED_MULT } from '../shared';
@@ -698,6 +698,28 @@ describe('їжа і голод', () => {
     expect(w.state.flows.total.byBuilding[farm.id]?.produced.food ?? 0).toBeGreaterThan(3);
     expect(w.state.flows.total.edges[`${farm.id}>${hall(w).id}:food`] ?? 0).toBeGreaterThan(0);
     expect(hall(w).stock.food ?? 0).toBeGreaterThan(0);
+  });
+
+  it('ферма 20×20: фермери працюють на полі всередині footprint, не збоку', () => {
+    const w = setup(5);
+    const farm = place(w, 'farm', 36, 30);
+    expect(farm.size).toEqual({ w: 20, h: 20 });
+    staffBuilding(w, 'p', farm.id);
+    const n = w.state.npcs, on = new Set<number>();
+    let working = 0, inside = 0;
+    for (let t = 0; t < 1500; t++) {
+      stepWorld(w);
+      for (const i of farm.workers) {
+        if (n.task[i] !== TASKS.indexOf('work')) continue;
+        working++;
+        const x = Math.floor(n.x[i]), y = Math.floor(n.y[i]);
+        if (x >= farm.cell.x && x < farm.cell.x + 20 && y >= farm.cell.y && y < farm.cell.y + 20) { inside++; on.add(y * 1000 + x); }
+      }
+    }
+    expect(working).toBeGreaterThan(0);
+    expect(inside / working).toBeGreaterThan(0.9);
+    expect(on.size).toBeGreaterThan(1);
+    expect(checkPlace(w, 0, 'house', farm.cell.x + 10, farm.cell.y + 10)).toBe('occupied'); // поле не віддають під забудову
   });
 
   it('фермер не потрапляє в глухий кут: на нулі ситості без їжі теж працює', () => {
