@@ -8,11 +8,12 @@ import {
 import { FOOTPRINT, JOB_OF, MAX_WORKERS, NPC_TILES, STONE_TILES } from '../sim/balance';
 import { NPC_STAT_COUNT, PROFESSIONS, RESOURCE_KINDS, TASKS, statIndex } from '../shared';
 import {
-  Atmosphere, OAK_VARIANTS, PALETTE, PINE_VARIANTS, Particles, ROCK_VARIANTS, actFrames, actRate, buildingArt, classOf, cycleFrame, frameId, hitFrame, initStyle, nextTime,
+  Atmosphere, OAK_VARIANTS, rodAngle, rodTip, PALETTE, PINE_VARIANTS, Particles, ROCK_VARIANTS, actFrames, actRate, buildingArt, classOf, cycleFrame, frameId, hitFrame, initStyle, nextTime,
   spr, toolOf, treeSpriteId, variant, walkFrame, IDLE_FRAMES, type Tool,
 } from './style';
 import { ISO_Y, clampCamInside, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
 import { Surroundings } from './surroundings';
+import { bobberAt, nearestWater } from './fishing';
 import { lerpPos, TickClock } from './interp';
 import { BuildingGhost } from './buildingGhost';
 import { CityHud } from '../ui/cityHud';
@@ -33,7 +34,7 @@ const BUCKET = SECTOR_SIZE / NB;
 /** Статичний об'єкт шару глибини: спрайти (дерево, камінь, споруда) + поліг. влучання й виділення. */
 interface Obj { sprites: Sprite[]; pick: number[] | null; tile: { x: number; y: number } | null; sel: Sel | null }
 /** Візуал жителя: спрайт, ноша, лічильники анімації. */
-interface NpcVis { s: Sprite; carry: Sprite; lx: number; ly: number; dist: number; dir: number; frame: number; row: number }
+interface NpcVis { s: Sprite; carry: Sprite; lx: number; ly: number; dist: number; dir: number; frame: number; row: number; fish?: number }
 const WORK_TASK = TASKS.indexOf('work');
 const SIZE_STAT = statIndex('size');
 const RES_BUNDLE: Record<string, string> = { wood: 'wood', stone: 'stone', planks: 'planks', food: 'food' };
@@ -53,6 +54,7 @@ export class CityView {
   private waterTiles: number[] = [];
   private shine = new Graphics();
   private hoverG = new Graphics();
+  private fishG = new Graphics();
   private ghost = new BuildingGhost();
   private hud: CityHud;
   /** Режим будівництва: вибрана будівля; null = режим «вибір» (курсор порожній). Після однієї споруди повертається в null. */
@@ -93,6 +95,7 @@ export class CityView {
       this.rowCont.push(c);
       this.root.addChild(c);
     }
+    this.root.addChild(this.fishG);
     this.root.addChild(this.surroundings.front);
     this.drawFog();
     this.root.addChild(this.atmo.world, this.parts.layer);
@@ -589,6 +592,7 @@ export class CityView {
     const n = this.w.state.npcs, npc = this.w.npc, alpha = this.clock.alpha(performance.now());
     const seen = new Set<number>();
     const zoomOk = this.cam.zoom > 0.45;
+    const fg = this.fishG; fg.clear();
     for (let i = 0; i < n.capacity; i++) {
       if (!n.alive[i] || n.sector[i] !== this.sector) continue;
       seen.add(i);
@@ -618,8 +622,9 @@ export class CityView {
         v.frame = key;
       }
       const small = n.stats[i * NPC_STAT_COUNT + SIZE_STAT] < 2 ? 0.82 : 1;
-      v.s.scale.set(a.scale * small * v.dir, a.scale * small);
       const base = planeToIso(px, py, 0);
+      if (tool === 'rod' && anim === 'act') this.drawFishing(fg, v, i, tx, ty, fi, a.scale * small, base);
+      v.s.scale.set(a.scale * small * v.dir, a.scale * small);
       v.s.position.set(base.x, base.y); v.s.zIndex = py;
       if (v.row !== row) { this.rowCont[row].addChild(v.s, v.carry); v.row = row; }
       if (walking && zoomOk && Math.random() < dt * 4) this.parts.emit({ x: px, y: py, z: 0.5, vx: (Math.random() - 0.5) * 6, vz: 4, g: 8, life: 0.45, col: 0xc9b48a, size: 0.7, a: 0.5, kind: 'dust' });
@@ -632,6 +637,32 @@ export class CityView {
       } else v.carry.visible = false;
     }
     for (const [i, v] of this.npcVis) if (!seen.has(i)) { v.s.destroy(); v.carry.destroy(); this.npcVis.delete(i); }
+  }
+
+  /** Рибалка: стоїть обличчям до води, ліска тягнеться від кінчика вудки до поплавка на воді. */
+  private drawFishing(g: Graphics, v: NpcVis, i: number, tx: number, ty: number, fi: number, sc: number, base: { x: number; y: number }): void {
+    const rt = getSectorRt(this.w, this.sector), T = SECTOR_SIZE;
+    const water = nearestWater((x, y) => x >= 0 && y >= 0 && x < T && y < T && rt.water[y * T + x] === 1, tx, ty);
+    if (!water) return;
+    if (Math.abs(water.x - tx) > 0.2) v.dir = water.x > tx ? 1 : -1;
+    const tip = rodTip(rodAngle(fi), fi === hitFrame('rod') ? 1 : 0);
+    const sx = base.x + tip.x * sc * v.dir, sy = base.y + tip.y * sc;
+    const bob = bobberAt({ x: tx, y: ty }, water, this.animT + i * 0.9);
+    const castT = fi < 3 ? 0 : 1; // до кидка: поплавка ще немає
+    const bp = planeToIso(bob.x * TILE, bob.y * TILE, bob.z * TILE);
+    const bite = fi === 7 || (fi === 6 && Math.sin(this.animT * 14 + i) > 0.3);
+    if (castT) {
+      const mid = { x: (sx + bp.x) / 2, y: Math.max(sy, bp.y) + (fi === 3 ? 2 : 4) * sc * 3 * (bite ? 0.3 : 1) };
+      g.moveTo(sx, sy).quadraticCurveTo(mid.x, mid.y, bp.x, bp.y).stroke({ width: 0.7, color: 0xe6e2d6, alpha: 0.85 });
+      g.circle(bp.x, bp.y, 1.5).fill(0xf1eada); g.circle(bp.x, bp.y - 0.9, 1.1).fill(0xc2323c);
+      g.ellipse(bp.x, bp.y + 1.2, 3.2 + (bite ? 1.5 : 0), 1.1).stroke({ width: 0.5, color: 0xdff2fa, alpha: 0.6 });
+    } else {
+      g.moveTo(sx, sy).lineTo(sx + 1.5 * v.dir, sy + 7 * sc * 3).stroke({ width: 0.7, color: 0xe6e2d6, alpha: 0.7 });
+    }
+    if ((fi === hitFrame('rod') || fi === 7) && v.fish !== fi + 100 * Math.floor(this.animT * 0.2)) {
+      v.fish = fi + 100 * Math.floor(this.animT * 0.2);
+      if (this.cam.zoom > 0.45) for (let k = 0; k < (fi === 7 ? 9 : 5); k++) this.parts.emit({ x: bob.x * TILE, y: bob.y * TILE, z: 1, vx: (Math.random() - 0.5) * 14, vy: (Math.random() - 0.5) * 6, vz: 10 + Math.random() * 12, g: 70, life: 0.5, col: 0xdff2fa, size: 0.7, kind: 'chip' });
+    }
   }
 
   /** Удар інструмента: тріски, іскри, пил, стріла. */

@@ -51,10 +51,20 @@ const ACT: Record<Tool, { angles: number[]; hit: number }> = {
   hoe: { angles: [30, 80, 120, -20, 0], hit: 3 },
   saw: { angles: [0, 0, 0, 0], hit: -1 },
   bow: { angles: [0, 0, 0, 0, 0, 0], hit: 5 },
-  rod: { angles: [60, 70, 30, 15, 40, 55], hit: -1 },
+  /** Цикл: готовність, замах назад, кидок (удар = плеск), очікування, підсікання. */
+  rod: { angles: [55, 95, 120, 25, 40, 42, 40, 80], hit: 3 },
 };
 /** Циклів дії за секунду. */
-export const actRate = (tool: Tool): number => ({ none: 1, sword: 1.2, axe: 1.4, pick: 1.2, hammer: 1.8, hoe: 1, saw: 1.6, bow: 0.5, rod: 0.3 })[tool];
+export const actRate = (tool: Tool): number => ({ none: 1, sword: 1.2, axe: 1.4, pick: 1.2, hammer: 1.8, hoe: 1, saw: 1.6, bow: 0.5, rod: 0.2 })[tool];
+/** Довжина вудки (пікселі спрайта). */
+export const ROD_LEN = 12;
+/** Кінчик вудки відносно якоря спрайта (пікселі спрайта; y вниз) для кадру дії з кутом `angle` і нахилом `lean`. */
+export function rodTip(angle: number, lean = 0): { x: number; y: number } {
+  const ar = (angle * Math.PI) / 180;
+  return { x: 3 + lean - 1 + Math.round(Math.cos(ar) * ROD_LEN), y: -HIP - 7 - Math.round(Math.sin(ar) * ROD_LEN) };
+}
+/** Кут вудки для кадру циклу дії. */
+export const rodAngle = (frame: number): number => ACT.rod.angles[frame] ?? 55;
 export const actFrames = (tool: Tool): number => ACT[tool].angles.length;
 export const hitFrame = (tool: Tool): number => ACT[tool].hit;
 export const toolOf = (cls: string): Tool => (CLASSES[cls] ?? CLASSES.civ).tool;
@@ -137,10 +147,7 @@ function paint(c: Ctx, k: CharClass, p: Pose): void {
     c.fillRect(bx - 2, by, 1, 1); c.fillRect(sx, by + 1, 1, 8); c.fillRect(bx - 2, by + 9, 1, 1);
     if (p.anim === 'act' && p.frame >= 1 && p.frame <= 4) { c.fillStyle = '#c9c0a0'; for (let i = 0; i < 7; i++) c.fillRect(sx + i, by + 4, 1, 1); c.fillStyle = '#8a8a96'; c.fillRect(sx + 7, by + 4, 1, 1); }
   } else if (k.tool === 'rod') {
-    const e = ray(hx, hy, a, 12, '#6a4a32');
-    c.fillStyle = '#d8d4c8'; const drop = p.anim === 'act' ? 8 + (p.frame % 3) : 8;
-    for (let i = 1; i <= drop; i++) c.fillRect(e[0] + 1, e[1] + i, 1, 1);
-    rect(c, e[0], e[1] + drop, 3, 2, '#c2323c'); rect(c, e[0], e[1] + drop, 3, 1, '#f1eada');
+    ray(hx, hy, a, ROD_LEN, '#6a4a32'); // ліска й поплавок малюються у вигляді (вони тягнуться до води)
   }
 }
 
