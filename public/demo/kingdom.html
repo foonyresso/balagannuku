@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Демо стилю: Kingdom</title>
+<style>
+  html,body{margin:0;height:100%;background:#0c0a12;overflow:hidden;font-family:system-ui,sans-serif}
+  canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;position:absolute;left:0;top:0}
+  #ui{position:fixed;left:12px;top:10px;color:#d8cdb8;font-size:13px;text-shadow:0 1px 2px #000;z-index:2}
+  #ui b{font-size:15px;letter-spacing:.5px}
+  #ui button{background:#2a2433cc;color:#e8dcc4;border:1px solid #6b5a4a;border-radius:3px;padding:4px 10px;margin:6px 4px 0 0;cursor:pointer;font:inherit}
+  #ui button.on{background:#7a5a34;border-color:#d8b26a}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui"><b>Балаганники — стиль «Kingdom»</b><br>
+  <span style="opacity:.7">піксельарт, силуети, тепле світло, ізометрія ~42°</span><br>
+  <button data-t="dusk" class="on">Сутінки</button><button data-t="night">Ніч</button><button data-t="dawn">Світанок</button>
+</div>
+<script>
+'use strict';
+// ---------- налаштування ----------
+const ISO = Math.sin(42 * Math.PI / 180); // як VIEW_ANGLE_DEG у src/render/projection.ts
+const GW = 1400, GH = 640, GCX = 700, GCY = 320; // розмір «землі» та її центр (екранні одиниці)
+const TIMES = {
+  dusk:  { amb: [0.55, 0.45, 0.60], fire: 1.0, vig: 0.55, fog: [200, 170, 200] },
+  night: { amb: [0.20, 0.25, 0.43], fire: 1.3, vig: 0.70, fog: [120, 140, 190] },
+  dawn:  { amb: [0.82, 0.66, 0.60], fire: 0.6, vig: 0.38, fog: [255, 220, 200] },
+};
+let timeKey = 'dusk';
+const amb = [...TIMES.dusk.amb];
+
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; };
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.imageSmoothingEnabled = false; return [c, x]; };
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// ---------- піксельні примітиви ----------
+function disc(c, cx, cy, r, col) { c.fillStyle = col; for (let dy = -r; dy <= r; dy++) { const w = Math.floor(Math.sqrt(r * r - dy * dy) + 0.5); c.fillRect(cx - w, cy + dy, w * 2 + 1, 1); } }
+function inPoly(x, y, p) { let o = false; for (let i = 0, j = p.length - 1; i < p.length; j = i++) { if ((p[i][1] > y) !== (p[j][1] > y) && x < (p[j][0] - p[i][0]) * (y - p[i][1]) / (p[j][1] - p[i][1]) + p[i][0]) o = !o; } return o; }
+function poly(c, p, col) {
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const [x, y] of p) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  for (let y = Math.floor(y0); y <= Math.ceil(y1); y++) for (let x = Math.floor(x0); x <= Math.ceil(x1); x++)
+    if (inPoly(x + .5, y + .5, p)) { c.fillStyle = typeof col === 'function' ? col(x, y) : col; c.fillRect(x, y, 1, 1); }
+}
+
+// ---------- спрайти (процедурні) ----------
+function makeOak(seed, big) {
+  const R = rng(seed), W = 56, H = 72, [cv, c] = mk(W, H), cx = 28;
+  c.fillStyle = '#241a20'; c.fillRect(cx - 2, 46, 5, 24); c.fillRect(cx - 4, 66, 9, 4); c.fillStyle = '#3a2a2c'; c.fillRect(cx - 2, 46, 1, 22);
+  const blobs = []; for (let i = 0; i < (big ? 9 : 7); i++) blobs.push([cx + (R() - .5) * 26, 30 + (R() - .5) * 22, 8 + R() * 5]);
+  blobs.push([cx, 24, 12]);
+  for (const [x, y, r] of blobs) disc(c, Math.round(x), Math.round(y), Math.round(r), '#1b2a2b');
+  for (const [x, y, r] of blobs) disc(c, Math.round(x - 1), Math.round(y - 2), Math.round(r - 2), '#2c4638');
+  for (const [x, y, r] of blobs) disc(c, Math.round(x - 3), Math.round(y - 4), Math.round(r - 5), '#46663f');
+  for (let i = 0; i < 40; i++) { const [x, y, r] = blobs[Math.floor(R() * blobs.length)]; c.fillStyle = R() < .5 ? '#7d8f4c' : '#5d7a45'; c.fillRect(Math.round(x - 4 + R() * 3), Math.round(y - r + 1 + R() * 4), 1, 1); }
+  for (let i = 0; i < 30; i++) { c.fillStyle = '#1b2a2b'; c.fillRect(8 + Math.floor(R() * 40), 40 + Math.floor(R() * 8), 1, 1); }
+  return { cv, ax: cx, ay: 70 };
+}
+function makePine(seed) {
+  const R = rng(seed), W = 40, H = 72, [cv, c] = mk(W, H), cx = 20;
+  c.fillStyle = '#241a20'; c.fillRect(cx - 1, 56, 3, 14);
+  const tiers = 5;
+  for (let k = 0; k < tiers; k++) {
+    const top = 6 + k * 11, hh = 16 + k * 2, hw = 6 + k * 3;
+    poly(c, [[cx, top], [cx + hw, top + hh], [cx - hw, top + hh]], (x, y) => (x < cx - (y - top) * .1 ? '#2c4a43' : '#1a2b30'));
+    for (let i = 0; i < 6; i++) { c.fillStyle = '#4f7154'; const yy = top + 3 + Math.floor(R() * (hh - 4)); c.fillRect(cx - Math.floor((yy - top) / hh * hw) + Math.floor(R() * 4), yy, 1, 1); }
+  }
+  return { cv, ax: cx, ay: 70 };
+}
+function makeBush(seed) {
+  const R = rng(seed), [cv, c] = mk(24, 14);
+  for (let i = 0; i < 4; i++) disc(c, 6 + i * 4, 7 + (R() * 2 | 0), 4, '#1f3230');
+  for (let i = 0; i < 4; i++) disc(c, 5 + i * 4, 6 + (R() * 2 | 0), 3, '#3a5a3e');
+  for (let i = 0; i < 8; i++) { c.fillStyle = R() < .3 ? '#d8b0b8' : '#6f8a4a'; c.fillRect(3 + R() * 16 | 0, 3 + R() * 6 | 0, 1, 1); }
+  return { cv, ax: 12, ay: 13 };
+}
+function makeHouse() {
+  const [cv, c] = mk(76, 72);
+  // бокова стіна, фасад, фундамент
+  poly(c, [[50, 32], [68, 23], [68, 51], [50, 60]], '#35282a');
+  poly(c, [[6, 32], [50, 32], [50, 60], [6, 60]], (x, y) => (y % 5 === 0 ? '#46332b' : '#5b4335'));
+  c.fillStyle = '#3f3a3c'; c.fillRect(5, 56, 46, 5); poly(c, [[50, 56], [68, 47], [68, 52], [50, 61]], '#2c2628');
+  for (let i = 0; i < 9; i++) { c.fillStyle = '#524c4d'; c.fillRect(6 + i * 5, 57 + (i % 2), 3, 1); }
+  // дах: фронтон і правий скат
+  poly(c, [[28, 8], [54, 32], [68, 25], [42, 1]], (x, y) => ((y + (x >> 1)) % 4 === 0 ? '#3b1c24' : '#4e2430'));
+  poly(c, [[2, 32], [28, 8], [54, 32]], (x, y) => (y % 4 === 0 ? '#5a2830' : '#6e3438'));
+  c.fillStyle = '#9a5a4a'; for (let i = 0; i < 26; i++) { c.fillRect(28 - i, 8 + i, 1, 1); } // підсвітка лівого ребра
+  c.fillStyle = '#7a4a40'; for (let i = 0; i < 14; i++) c.fillRect(28 + i, 8 - (i >> 1), 1, 1);
+  // димар
+  c.fillStyle = '#2e2b2e'; c.fillRect(44, 4, 6, 12); c.fillStyle = '#4a4548'; c.fillRect(44, 4, 6, 1);
+  // двері, вікно (вікно світиться окремо)
+  c.fillStyle = '#1f1618'; c.fillRect(24, 44, 9, 16); c.fillRect(25, 43, 7, 1); c.fillStyle = '#3a2a24'; c.fillRect(24, 44, 1, 16);
+  c.fillStyle = '#ffcf7a'; c.fillRect(12, 40, 8, 8); c.fillStyle = '#3c2a24'; c.fillRect(15, 40, 1, 8); c.fillRect(12, 43, 8, 1); c.fillRect(11, 48, 10, 1);
+  c.fillStyle = '#ffcf7a'; c.fillRect(56, 38, 5, 6); c.fillStyle = '#3c2a24'; c.fillRect(58, 38, 1, 6);
+  return { cv, ax: 28, ay: 62, win: [16, 44], win2: [58, 41], chim: [47, 3] };
+}
+const SP = { oak: [1, 2, 3, 4, 5].map(i => makeOak(i * 77, i === 3)), pine: [1, 2, 3].map(i => makePine(i * 31)), bush: [1, 2, 3].map(i => makeBush(i * 13)), house: makeHouse() };
+
+// ---------- земля ----------
+const POND = { x: 150, y: 105, rx: 62, ry: 36 };
+const [ground, gctx] = mk(GW, GH);
+(function buildGround() {
+  const R = rng(4242), c = gctx, img = c.createImageData(GW, GH), d = img.data;
+  const vn = (x, y, s) => { const X = Math.floor(x / s), Y = Math.floor(y / s); const h = (a, b) => { let n = Math.imul(a * 374761393 + b * 668265263, 1274126177); return ((n ^ n >>> 13) >>> 0) / 4294967296; }; const fx = x / s - X, fy = y / s - Y, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy); return lerp(lerp(h(X, Y), h(X + 1, Y), sx), lerp(h(X, Y + 1), h(X + 1, Y + 1), sx), sy); };
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    const n = vn(x, y, 60) * .6 + vn(x, y, 18) * .4;
+    const dx = (x - GCX) / 700, dy = (y - GCY) / 320, e = Math.min(1, Math.sqrt(dx * dx + dy * dy));
+    const q = Math.floor(n * 5) / 5; // постеризація => «плями» як у піксельарті
+    const i = (y * GW + x) * 4;
+    d[i] = 112 + q * 40; d[i + 1] = 138 + q * 36; d[i + 2] = 78 + q * 26; d[i + 3] = 255;
+    const dark = e * e * .55; d[i] *= 1 - dark; d[i + 1] *= 1 - dark; d[i + 2] *= 1 - dark * .8;
+  }
+  c.putImageData(img, 0, 0);
+  const G = (px, py) => [Math.round(GCX + px), Math.round(GCY + py * ISO)];
+  // стежка: будинок -> вогнище -> тренувальний майданчик
+  c.fillStyle = '#a58a62';
+  const path = [[-90, -22], [-60, -10], [-20, 14], [30, 28], [70, 10], [105, -6]];
+  for (let t = 0; t < 1; t += 0.004) {
+    const k = t * (path.length - 1), i = Math.min(path.length - 2, k | 0), f = k - i;
+    const px = lerp(path[i][0], path[i + 1][0], f), py = lerp(path[i][1], path[i + 1][1], f);
+    const [x, y] = G(px, py); const w = 6 + Math.floor(R() * 3);
+    c.fillStyle = R() < .5 ? '#a58a62' : '#96794f'; c.fillRect(x - w, y - 2, w * 2, 4);
+  }
+  for (let i = 0; i < 260; i++) { const [x, y] = G(-120 + R() * 260, -30 + R() * 80); c.fillStyle = '#7a6444'; c.fillRect(x, y, 2, 1); }
+  // ставок
+  const [px, py] = G(POND.x, POND.y);
+  for (let dy = -POND.ry * ISO - 3; dy <= POND.ry * ISO + 3; dy++) for (let dx = -POND.rx - 3; dx <= POND.rx + 3; dx++) {
+    const u = dx / POND.rx, v = dy / (POND.ry * ISO), r = u * u + v * v + (vn(px + dx, py + dy, 9) - .5) * .12;
+    if (r < 1.0) { c.fillStyle = r < .72 ? '#27455a' : '#33607a'; c.fillRect(px + Math.round(dx), py + Math.round(dy), 1, 1); }
+    else if (r < 1.18) { c.fillStyle = '#5c5a48'; c.fillRect(px + Math.round(dx), py + Math.round(dy), 1, 1); }
+  }
+  // травинки
+  for (let i = 0; i < 5200; i++) {
+    const x = R() * GW | 0, y = R() * GH | 0, px2 = x - GCX, py2 = (y - GCY) / ISO;
+    if (((px2 - POND.x) / (POND.rx + 6)) ** 2 + ((py2 - POND.y) / (POND.ry + 6)) ** 2 < 1) continue;
+    const e = Math.min(1, Math.hypot((x - GCX) / 700, (y - GCY) / 320)), s = R();
+    c.fillStyle = s < .5 ? '#9fb66c' : s < .85 ? '#5f7d4a' : '#d7c47a'; c.globalAlpha = (1 - e * .6) * (s < .85 ? .7 : .55);
+    c.fillRect(x, y, 1, 2 + (R() * 2 | 0));
+    if (s < .5) c.fillRect(x + 2, y + 1, 1, 2);
+  }
+  c.globalAlpha = 1;
+})();
+
+// ---------- сцена: статичні об'єкти ----------
+const props = []; // {x,y,sp}
+{
+  const R = rng(99);
+  const clear = (x, y) => (Math.abs(x - 10) < 200 && Math.abs(y - 10) < 95) || (((x - POND.x) / (POND.rx + 14)) ** 2 + ((y - POND.y) / (POND.ry + 14)) ** 2 < 1);
+  const add = (x, y, kind, i) => props.push({ x, y, sp: SP[kind][Math.abs(i) % SP[kind].length] });
+  props.push({ x: -170, y: 52, sp: SP.oak[2], big: true });
+  for (let i = 0; i < 150; i++) {
+    const x = (R() - .5) * 1300, y = (R() - .5) * 760;
+    if (clear(x, y) || Math.hypot(x + 170, y - 52) < 30) continue;
+    if (R() < .62) add(x, y, 'pine', i); else add(x, y, 'oak', i);
+  }
+  for (let i = 0; i < 40; i++) { const x = (R() - .5) * 760, y = (R() - .5) * 420; if (!clear(x, y) || Math.abs(x) < 190 && Math.abs(y) < 90) { if (!clear(x, y) && !(Math.abs(x) < 190 && Math.abs(y) < 90)) add(x, y, 'bush', i); } }
+  for (const [x, y] of [[-125, 5], [-150, 10], [-60, 65], [190, 8], [-30, -78], [205, -70]]) add(x, y, 'bush', x | 0);
+  props.push({ x: -95, y: -28, sp: SP.house, house: true });
+}
+const FIRE = { x: 28, y: 24 }, BANNER = { x: 58, y: -64 }, DUMMY = { x: 118, y: -12 }, LOGS = { x: -36, y: 46 };
+const HOUSE = props.find(p => p.house);
+
+// ---------- персонажі ----------
+const CLS = {
+  knight:     { cloak: '#7b2f3a', trim: '#b9b9c6', hood: '#a9acb8', skin: '#d9a97a', tool: 'sword', plume: true, spd: 26 },
+  woodcutter: { cloak: '#6e4b2a', trim: '#4c321e', hood: '#4b3320', skin: '#d9a97a', tool: 'axe', spd: 24 },
+  mage:       { cloak: '#43408a', trim: '#8a86d6', hood: '#2f2e66', skin: '#e3bd95', tool: 'staff', hat: true, spd: 22 },
+  archer:     { cloak: '#43713d', trim: '#2c4a2a', hood: '#2c4a2a', skin: '#d9a97a', tool: 'bow', spd: 30 },
+  builder:    { cloak: '#9a7a3e', trim: '#6a4a2a', hood: '#d1a84e', skin: '#d9a97a', tool: 'hammer', hardhat: true, spd: 24 },
+  lord:       { cloak: '#5a2a66', trim: '#e0b84a', hood: '#e0b84a', skin: '#e3bd95', tool: 'none', crown: true, spd: 18 },
+};
+const chars = [];
+const S = (x, y, face, act, dur) => ({ x, y, face, act, dur });
+function spawn(cls, x, y, spots) { chars.push({ cls, x, y, dir: 1, st: 'walk', spot: null, spots, t: Math.random() * 5, ph: 0, tw: 0, hit: -1, tgt: null }); }
+spawn('knight', 40, -30, [S(98, -10, 1, 'swing', 7), S(5, 40, 1, 'idle', 3), S(-10, -30, -1, 'idle', 3)]);
+spawn('woodcutter', -120, 20, [S(-158, 50, -1, 'chop', 8), S(LOGS.x - 14, LOGS.y + 3, -1, 'idle', 3), S(FIRE.x + 22, FIRE.y + 6, -1, 'idle', 3)]);
+spawn('mage', 90, 60, [S(POND.x - 70, POND.y - 5, 1, 'cast', 7), S(FIRE.x - 18, FIRE.y + 10, 1, 'idle', 3), S(BANNER.x - 16, BANNER.y + 14, 1, 'idle', 3)]);
+spawn('archer', 70, -40, [S(40, -12, 1, 'shoot', 9), S(FIRE.x + 6, FIRE.y - 14, -1, 'idle', 3), S(130, 30, -1, 'idle', 3)]);
+spawn('builder', -70, 0, [S(-62, -20, -1, 'hammer', 8), S(LOGS.x + 12, LOGS.y - 4, 1, 'idle', 3), S(-110, -14, 1, 'hammer', 6)]);
+spawn('lord', 0, 0, [S(-85, -18, -1, 'idle', 4), S(FIRE.x - 4, FIRE.y + 16, 1, 'idle', 5), S(BANNER.x - 12, BANNER.y + 16, 1, 'idle', 4), S(70, 20, 1, 'idle', 3)]);
+
+// ---------- частинки ----------
+const parts = [];
+function emit(o) { parts.push(Object.assign({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, g: 0, life: 1, max: 1, col: '#fff', s: 1, a: 1, kind: 'p' }, o, { max: o.life })); }
+
+// ---------- рендер ----------
+const cvs = document.getElementById('c'), ctx = cvs.getContext('2d');
+const [lightC, lctx] = mk(8, 8);
+let W = 0, H = 0, SC = 2;
+function resize() {
+  SC = Math.max(2, Math.round(innerHeight / 220));
+  W = Math.ceil(innerWidth / SC); H = Math.ceil(innerHeight / SC);
+  cvs.width = W; cvs.height = H; cvs.style.width = W * SC + 'px'; cvs.style.height = H * SC + 'px';
+  lightC.width = W; lightC.height = H;
+  ctx.imageSmoothingEnabled = false;
+}
+addEventListener('resize', resize); resize();
+const [fogS, fctx] = mk(256, 96);
+{ const g = fctx.createRadialGradient(128, 48, 0, 128, 48, 120); g.addColorStop(0, 'rgba(255,255,255,.5)'); g.addColorStop(1, 'rgba(255,255,255,0)'); fctx.save(); fctx.scale(1, .4); fctx.fillStyle = g; fctx.fillRect(0, 0, 256, 240); fctx.restore(); }
+const fogs = Array.from({ length: 7 }, (_, i) => ({ x: Math.random() * 1400 - 700, y: (Math.random() - .5) * 300, s: 1.5 + Math.random() * 2, v: 3 + Math.random() * 5 }));
+const flies = Array.from({ length: 34 }, () => ({ x: (Math.random() - .5) * 460, y: (Math.random() - .5) * 220, ph: Math.random() * 9, sp: .6 + Math.random() * 1.2, r: 8 + Math.random() * 14 }));
+
+const ox = () => Math.round(W / 2), oy = () => Math.round(H / 2);
+const sxy = (px, py, z = 0) => [Math.round(ox() + px), Math.round(oy() + py * ISO - z)];
+const smooth = t => t * t * (3 - 2 * t);
+
+function drawChar(c, tm) {
+  const k = CLS[c.cls], f = c.dir, [x, y] = sxy(c.x, c.y);
+  const moving = c.st === 'walk', ph = c.ph;
+  const bob = moving ? (Math.abs(Math.sin(ph)) > .55 ? 1 : 0) : 0, br = Math.sin(tm * 2 + c.t) > .7 ? 1 : 0;
+  const R = (dx, up, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(f > 0 ? x + dx : x - dx - w, y - up - h, w, h); };
+  // тінь
+  ctx.fillStyle = 'rgba(8,6,16,.38)'; ctx.fillRect(x - 5, y - 1, 11, 2); ctx.fillRect(x - 3, y - 2, 7, 1); ctx.fillRect(x - 3, y + 1, 7, 1);
+  // ноги
+  const la = moving && Math.sin(ph) > 0, lb = moving && Math.sin(ph) <= 0;
+  R(-2, la ? 1 : 0, 2, la ? 3 : 4, '#2a2430'); R(1, lb ? 1 : 0, 2, lb ? 3 : 4, '#241f2a');
+  // плащ/тіло
+  R(-3, 4 + bob, 6, 7, k.cloak); R(-3, 4 + bob, 6, 1, k.trim); R(-3, 7 + bob, 6, 1, '#1b161e');
+  R(-4, 5 + bob, 1, 5, k.cloak); // спина плаща
+  if (c.cls === 'lord') { R(-4, 3 + bob, 2, 8, '#42204c'); R(-3, 10 + bob, 6, 1, '#f1eada'); }
+  // голова
+  const hb = bob + br * 0;
+  R(-2, 11 + hb, 5, 4, k.skin);
+  R(-3, 13 + hb, 6, 3, k.hood); R(-3, 11 + hb, 2, 3, k.hood);
+  R(1, 12 + hb, 1, 1, '#1a1418'); // око
+  if (k.hat) { R(-3, 16 + hb, 7, 1, k.hood); R(-2, 17 + hb, 5, 2, k.hood); R(-1, 19 + hb, 3, 2, k.hood); R(0, 21 + hb, 2, 1, k.hood); R(-3, 16 + hb, 7, 1, k.trim); R(-1, 12 + hb, 3, 2, '#d8d4e8'); }
+  if (k.hardhat) { R(-3, 16 + hb, 7, 1, '#b58a36'); R(-2, 17 + hb, 5, 1, k.hood); }
+  if (k.plume) { R(-3, 16 + hb, 6, 1, k.hood); R(-4, 17 + hb, 2, 3, '#c2323c'); R(-5, 19 + hb, 2, 1, '#c2323c'); R(1, 12 + hb, 2, 1, '#2a2a34'); }
+  if (k.crown) { R(-2, 16 + hb, 5, 1, '#e0b84a'); R(-2, 17 + hb, 1, 1, '#e0b84a'); R(0, 17 + hb, 1, 1, '#e0b84a'); R(2, 17 + hb, 1, 1, '#e0b84a'); R(0, 14 + hb, 3, 1, '#d8d4c8'); }
+  // інструмент і щит
+  const hx = x + f * 3, hy = y - 7 - bob;
+  const line = (x0, y0, a, len, col) => { const ar = a * Math.PI / 180; ctx.fillStyle = col; let ex = x0, ey = y0; for (let i = 0; i <= len; i++) { ex = Math.round(x0 + f * Math.cos(ar) * i); ey = Math.round(y0 - Math.sin(ar) * i); ctx.fillRect(ex, ey, 1, 1); } return [ex, ey]; };
+  const act = c.st === 'work' ? c.spot.act : 'none';
+  const cyc = rate => { const u = c.tw * rate, n = Math.floor(u), p = u - n; return { n, p }; };
+  const swing = (rate, a0, a1, a2) => { const { n, p } = cyc(rate); let a; if (p < .6) a = lerp(a0, a1, smooth(p / .6)); else if (p < .75) a = lerp(a1, a2, (p - .6) / .15); else a = lerp(a2, a0, smooth((p - .75) / .25)); return { a, hit: p >= .72 && c.hit !== n ? n : -1 }; };
+  if (k.tool === 'sword') {
+    let a = 75; if (act === 'swing') { const s = swing(1.6, 30, 120, -20); a = s.a; if (s.hit >= 0) { c.hit = s.hit; hitDummy(); } }
+    const e = line(hx, hy, a, 9, '#d4d8e0'); ctx.fillStyle = '#e0b84a'; ctx.fillRect(hx - 1, hy, 3, 1);
+    if (act === 'swing' && a < 20) { ctx.fillStyle = 'rgba(255,255,255,.5)'; for (let i = 0; i < 8; i++) ctx.fillRect(hx + f * (6 + i), hy - 3 + (i >> 1), 1, 1); }
+    R(2, 3 + bob, 4, 6, '#2d3f78'); R(3, 4 + bob, 2, 4, '#c9a24a'); R(2, 3 + bob, 4, 1, '#9aa0b4');
+  } else if (k.tool === 'axe') {
+    let a = 55; if (act === 'chop') { const s = swing(1.4, 20, 125, -30); a = s.a; if (s.hit >= 0) { c.hit = s.hit; for (let i = 0; i < 7; i++) emit({ x: c.x - 6, y: c.y, z: 9, vx: -20 - Math.random() * 30, vz: 15 + Math.random() * 25, g: 120, life: .6, col: i % 2 ? '#d9b27a' : '#8a6238', s: 1 }); } }
+    const e = line(hx, hy, a, 8, '#7a5230'); const ar = a * Math.PI / 180; const ex = Math.round(hx + f * Math.cos(ar) * 8), ey = Math.round(hy - Math.sin(ar) * 8);
+    ctx.fillStyle = '#aab0bc'; ctx.fillRect(ex - 1, ey - 2, 3, 4); ctx.fillStyle = '#e6eaf0'; ctx.fillRect(ex + (f > 0 ? 1 : -1), ey - 2, 1, 4);
+  } else if (k.tool === 'hammer') {
+    let a = 60; if (act === 'hammer') { const s = swing(2.2, 35, 100, -10); a = s.a; if (s.hit >= 0) { c.hit = s.hit; for (let i = 0; i < 4; i++) emit({ x: c.x - 14, y: c.y, z: 7, vx: -15 - Math.random() * 20, vz: 8 + Math.random() * 14, g: 100, life: .4, col: '#ffe08a', s: 1 }); } }
+    const e = line(hx, hy, a, 6, '#7a5230'); ctx.fillStyle = '#9aa0ac'; ctx.fillRect(e[0] - 1, e[1] - 1, 4, 3); ctx.fillStyle = '#d0d4dc'; ctx.fillRect(e[0] - 1, e[1] - 1, 4, 1);
+  } else if (k.tool === 'staff') {
+    const sway = act === 'cast' ? Math.sin(tm * 2) * 8 : 0; const e = line(hx + f, hy + 2, 86 + sway, 16, '#6a4a32');
+    const pulse = .6 + .4 * Math.sin(tm * 4 + c.t); ctx.fillStyle = '#6fb6ff'; ctx.fillRect(e[0] - 1, e[1] - 2, 3, 3); ctx.fillStyle = '#e6f4ff'; ctx.fillRect(e[0], e[1] - 1, 1, 1);
+    c.orb = [e[0], e[1] - 1, pulse];
+    if (act === 'cast' && Math.random() < .25) emit({ x: c.x + f * 4, y: c.y, z: 20, vx: (Math.random() - .5) * 18, vz: 8 + Math.random() * 16, g: 6, life: .9, col: '#9fd4ff', s: 1, kind: 'glow' });
+  } else if (k.tool === 'bow') {
+    const bx = x + f * 5, pull = act === 'shoot' ? Math.min(1, ((c.tw * .45) % 1) / .8) : 0;
+    ctx.fillStyle = '#7a5230'; for (const [dx, dy] of [[0, 0], [1, 1], [1, 2], [2, 3], [2, 4], [2, 5], [2, 6], [1, 7], [1, 8], [0, 9]]) ctx.fillRect(bx - f * (2 - dx) + (f < 0 ? -dx * 0 : 0), y - 15 + dy, 1, 1);
+    ctx.fillStyle = '#d8d0b8'; const sx = bx - f * (1 + Math.round(pull * 3)); for (let i = 0; i <= 9; i += 3) ctx.fillRect(i === 0 || i === 9 ? bx - f * 2 : sx, y - 15 + i, 1, 3);
+    if (act === 'shoot') { const p = ((c.tw * .45) % 1); if (p < .8) { ctx.fillStyle = '#c9c0a0'; for (let i = 0; i < 6; i++) ctx.fillRect(sx + f * i, y - 11, 1, 1); } if (p > .8 && c.hit !== Math.floor(c.tw * .45)) { c.hit = Math.floor(c.tw * .45); emit({ x: c.x + f * 6, y: c.y + .01, z: 9, vx: 190 * f, vz: 10, g: 60, life: .6, kind: 'arrow', col: '#e6dcc0' }); } }
+  }
+  if (c.cls === 'lord' && c.st === 'work') { /* ніби дивиться вдалину */ }
+}
+function hitDummy() { dummy.w = 1; }
+const dummy = { w: 0 };
+
+function drawProp(p, tm) {
+  const [x, y] = sxy(p.x, p.y), sp = p.sp;
+  ctx.fillStyle = 'rgba(8,6,16,.3)'; const sw = sp === SP.house ? 24 : Math.min(14, sp.cv.width * .3); ctx.fillRect(x - sw, y - 1, sw * 2, 2);
+  const sway = (sp === SP.house || p.big === undefined && sp.cv.height < 20) ? 0 : Math.round(Math.sin(tm * 0.9 + p.x * .1) * .6);
+  ctx.drawImage(sp.cv, x - sp.ax + sway, y - sp.ay);
+}
+function drawFire(tm) {
+  const [x, y] = sxy(FIRE.x, FIRE.y);
+  ctx.fillStyle = 'rgba(8,6,16,.35)'; ctx.fillRect(x - 8, y - 1, 16, 2);
+  for (let i = 0; i < 6; i++) { ctx.fillStyle = '#5a4030'; ctx.fillRect(x - 6 + i * 2, y - 2 - (i % 2), 3, 2); }
+  ctx.fillStyle = '#6e6a6c'; for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; ctx.fillRect(Math.round(x + Math.cos(a) * 7), Math.round(y - 1 + Math.sin(a) * 3), 2, 2); }
+  const fl = [['#c2441c', 8, 5], ['#f08a2a', 6, 4], ['#ffd25a', 4, 2]];
+  for (const [col, h, w] of fl) { ctx.fillStyle = col; for (let i = -w; i <= w; i++) { const hh = Math.max(1, Math.round(h * (1 - Math.abs(i) / (w + 1)) + Math.sin(tm * 14 + i * 1.7 + h) * 1.4)); ctx.fillRect(x + i, y - 2 - hh, 1, hh); } }
+  if (Math.random() < .35) emit({ x: FIRE.x + (Math.random() - .5) * 4, y: FIRE.y, z: 8, vx: (Math.random() - .5) * 10, vz: 18 + Math.random() * 20, g: -2, life: .9 + Math.random() * .6, col: '#ffb24a', s: 1, kind: 'glow' });
+  if (Math.random() < .12) emit({ x: FIRE.x, y: FIRE.y, z: 12, vx: (Math.random() - .5) * 6, vz: 10, life: 2.2, col: '#8a8590', s: 2, a: .35, kind: 'smoke' });
+}
+function drawBanner(tm) {
+  const [x, y] = sxy(BANNER.x, BANNER.y);
+  ctx.fillStyle = 'rgba(8,6,16,.3)'; ctx.fillRect(x - 3, y - 1, 7, 2);
+  ctx.fillStyle = '#3a2a28'; ctx.fillRect(x, y - 38, 2, 38); ctx.fillStyle = '#e0b84a'; ctx.fillRect(x - 1, y - 39, 4, 2);
+  for (let i = 0; i < 16; i++) { const w = Math.round(Math.sin(tm * 3 + i * .55) * (1 + i * .12)); const hh = 14 - (i > 10 ? i - 10 : 0); ctx.fillStyle = '#8f2f3a'; ctx.fillRect(x + 2 + i, y - 36 + w, 1, hh); ctx.fillStyle = '#d4a548'; ctx.fillRect(x + 2 + i, y - 31 + w, 1, 1); }
+}
+function drawDummy() {
+  const [x, y] = sxy(DUMMY.x, DUMMY.y), w = Math.round(dummy.w * 2 * Math.sin(dummy.w * 18));
+  ctx.fillStyle = 'rgba(8,6,16,.3)'; ctx.fillRect(x - 5, y - 1, 11, 2);
+  ctx.fillStyle = '#5a4030'; ctx.fillRect(x - 1, y - 18, 3, 18);
+  ctx.fillStyle = '#6a4c38'; ctx.fillRect(x - 6 + w, y - 15, 13, 2);
+  ctx.fillStyle = '#c9a85a'; ctx.fillRect(x - 3 + w, y - 22, 7, 8); ctx.fillStyle = '#a8883f'; ctx.fillRect(x - 3 + w, y - 18, 7, 1); ctx.fillRect(x - 2 + w, y - 22, 5, 1);
+  ctx.fillStyle = '#8f2f3a'; ctx.fillRect(x - 1 + w, y - 20, 3, 3);
+}
+function drawLogs() {
+  const [x, y] = sxy(LOGS.x, LOGS.y);
+  ctx.fillStyle = 'rgba(8,6,16,.3)'; ctx.fillRect(x - 10, y - 1, 20, 2);
+  for (const [dx, dy] of [[-7, 0], [0, 0], [-4, -3], [3, -3], [-1, -6]]) { ctx.fillStyle = '#5a3f2c'; ctx.fillRect(x + dx - 1, y + dy - 4, 9, 4); ctx.fillStyle = '#c9a070'; ctx.fillRect(x + dx + 7, y + dy - 4, 2, 4); ctx.fillStyle = '#7a5a3c'; ctx.fillRect(x + dx - 1, y + dy - 4, 9, 1); }
+}
+
+function step(dt, tm) {
+  for (const c of chars) {
+    const k = CLS[c.cls]; c.t += dt;
+    if (!c.spot) { c.spot = c.spots[Math.floor(Math.random() * c.spots.length)]; if (Math.random() < .25) c.spot = S((Math.random() - .5) * 300, (Math.random() - .5) * 140, c.dir, 'idle', 2); c.st = 'walk'; c.hit = -1; }
+    if (c.st === 'walk') {
+      const dx = c.spot.x - c.x, dy = c.spot.y - c.y, d = Math.hypot(dx, dy);
+      if (d < 1.5) { c.st = 'work'; c.tw = 0; c.dir = c.spot.face; c.hit = -1; }
+      else { const v = k.spd * dt; c.x += dx / d * Math.min(v, d); c.y += dy / d * Math.min(v, d); if (Math.abs(dx) > 1) c.dir = dx > 0 ? 1 : -1; c.ph += dt * 11; if (Math.random() < dt * 5) emit({ x: c.x, y: c.y, z: 1, vx: (Math.random() - .5) * 8, vz: 6, g: 10, life: .45, col: '#c9b48a', s: 1, a: .5 }); }
+    } else { c.tw += dt; if (c.tw > c.spot.dur) { c.spot = null; c.st = 'walk'; } }
+  }
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]; p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vz -= p.g * dt; p.z += p.vz * dt;
+    if (p.kind === 'arrow' && p.x >= DUMMY.x - 4) { dummy.w = 1; p.life = 0; }
+    if (p.z < 0 && p.kind === 'p') { p.z = 0; p.vz = 0; p.vx = 0; }
+    if (p.life <= 0) parts.splice(i, 1);
+  }
+  dummy.w = Math.max(0, dummy.w - dt * 1.6);
+  for (const f of flies) { f.ph += dt * f.sp; f.x += Math.cos(f.ph * .7) * dt * 6; f.y += Math.sin(f.ph * .9) * dt * 4; }
+  for (const g of fogs) { g.x += g.v * dt; if (g.x > 760) g.x = -760; }
+  if (Math.random() < dt * 3) emit({ x: HOUSE.x + 20, y: HOUSE.y, z: 52, vx: 4, vz: 9, life: 3.2, col: '#9a96a0', s: 2, a: .4, kind: 'smoke' });
+  const T = TIMES[timeKey]; for (let i = 0; i < 3; i++) amb[i] += (T.amb[i] - amb[i]) * Math.min(1, dt * 3);
+}
+const kF = { fire: 1, vig: .55 };
+
+function drawParts() {
+  for (const p of parts) {
+    const [x, y] = sxy(p.x, p.y, p.z), a = Math.max(0, p.life / p.max) * p.a;
+    ctx.globalAlpha = p.kind === 'smoke' ? a * (1 - a * .5) : a;
+    if (p.kind === 'arrow') { ctx.fillStyle = '#d8d0b4'; ctx.fillRect(x - 3, y, 6, 1); ctx.fillStyle = '#8a8a96'; ctx.fillRect(x + 3, y, 1, 1); ctx.fillStyle = '#7a3a3a'; ctx.fillRect(x - 4, y - 1, 1, 3); }
+    else { ctx.fillStyle = p.col; const s = p.kind === 'smoke' ? Math.round(p.s + (1 - a) * 4) : p.s; ctx.fillRect(x, y, s, s); }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function frame(ms) {
+  const tm = ms / 1000, dt = Math.min(0.05, (tm - (frame.last || tm)) || 0.016); frame.last = tm;
+  step(dt, tm); window.__demo.frames++;
+  const T = TIMES[timeKey];
+  ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#0c0a12'; ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(ground, ox() - GCX, oy() - GCY);
+  // блиск води
+  { const [px, py] = sxy(POND.x, POND.y); for (let i = 0; i < 26; i++) { const a = i * 2.399, r = Math.sqrt((i + 1) / 26); const sx = px + Math.cos(a) * r * POND.rx * .85, sy = py + Math.sin(a) * r * POND.ry * ISO * .85; const on = Math.sin(tm * 1.5 + i * 3.1) > .55; if (on) { ctx.fillStyle = 'rgba(200,230,250,.55)'; ctx.fillRect(Math.round(sx), Math.round(sy), 3, 1); } } }
+  // вогник-відблиск на землі
+  const list = [];
+  for (const p of props) list.push({ y: p.y, f: () => drawProp(p, tm) });
+  for (const c of chars) list.push({ y: c.y, f: () => drawChar(c, tm) });
+  list.push({ y: FIRE.y, f: () => drawFire(tm) }, { y: BANNER.y, f: () => drawBanner(tm) }, { y: DUMMY.y, f: drawDummy }, { y: LOGS.y, f: drawLogs });
+  list.sort((a, b) => a.y - b.y); for (const e of list) e.f();
+  drawParts();
+  // туман
+  for (const g of fogs) { const [x, y] = sxy(g.x, g.y); ctx.globalAlpha = .13; ctx.save(); ctx.translate(x, y); ctx.scale(g.s, g.s); ctx.drawImage(fogS, -128, -48); ctx.restore(); }
+  ctx.globalAlpha = 1;
+  // освітлення
+  const L = lctx; L.globalCompositeOperation = 'source-over'; L.fillStyle = `rgb(${amb.map(v => Math.round(v * 255)).join(',')})`; L.fillRect(0, 0, W, H);
+  L.globalCompositeOperation = 'lighter';
+  const glow = (px, py, r, rgb, a) => { const [x, y] = sxy(px, py); const g = L.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`); L.fillStyle = g; L.fillRect(x - r, y - r, r * 2, r * 2); };
+  const flick = .85 + Math.sin(tm * 17) * .06 + Math.sin(tm * 9.3) * .06;
+  glow(FIRE.x, FIRE.y - 6, 120, '255,150,70', .95 * T.fire * flick);
+  const gz = (px, py, z, r, rgb, a) => { const [x, y] = sxy(px, py, z); const g = L.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`); L.fillStyle = g; L.fillRect(x - r, y - r, r * 2, r * 2); };
+  gz(HOUSE.x - 12, HOUSE.y + 2, 18, 38, '255,190,90', .85); gz(HOUSE.x + 30, HOUSE.y - 3, 16, 24, '255,190,90', .55);
+  for (const c of chars) if (c.orb) { gz(c.x, c.y, 0, 0, '0,0,0', 0); const g = L.createRadialGradient(c.orb[0], c.orb[1], 0, c.orb[0], c.orb[1], 44); g.addColorStop(0, `rgba(110,170,255,${.7 * c.orb[2]})`); g.addColorStop(1, 'rgba(110,170,255,0)'); L.fillStyle = g; L.fillRect(c.orb[0] - 44, c.orb[1] - 44, 88, 88); c.orb = null; }
+  for (const f of flies) { const on = (Math.sin(f.ph * 2) + 1) / 2; if (on > .3) gz(f.x, f.y, 10 + Math.sin(f.ph) * 4, 10, '200,240,110', on * .8); }
+  L.globalCompositeOperation = 'source-over';
+  ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(lightC, 0, 0);
+  ctx.globalCompositeOperation = 'lighter';
+  // сяйво вогню та світляки поверх
+  { const [x, y] = sxy(FIRE.x, FIRE.y - 8); const g = ctx.createRadialGradient(x, y, 0, x, y, 26); g.addColorStop(0, `rgba(255,170,80,${.30 * T.fire * flick})`); g.addColorStop(1, 'rgba(255,170,80,0)'); ctx.fillStyle = g; ctx.fillRect(x - 26, y - 26, 52, 52); }
+  for (const f of flies) { const on = (Math.sin(f.ph * 2) + 1) / 2; if (on > .3) { const [x, y] = sxy(f.x, f.y, 10 + Math.sin(f.ph) * 4); ctx.fillStyle = `rgba(230,255,140,${on})`; ctx.fillRect(x, y, 1, 1); } }
+  ctx.globalCompositeOperation = 'source-over';
+  // кольоровий серпанок і віньєтка
+  { const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, `rgba(${T.fog},.16)`); g.addColorStop(.5, `rgba(${T.fog},0)`); g.addColorStop(1, `rgba(${T.fog},.08)`); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+  { kF.vig += (T.vig - kF.vig) * .05; const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .32, W / 2, H / 2, Math.hypot(W, H) * .56); g.addColorStop(0, 'rgba(6,4,12,0)'); g.addColorStop(1, `rgba(6,4,12,${kF.vig + .3})`); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+  requestAnimationFrame(frame);
+}
+window.__demo = { frames: 0, chars, get time() { return timeKey; } };
+document.querySelectorAll('#ui button').forEach(b => b.onclick = () => { timeKey = b.dataset.t; document.querySelectorAll('#ui button').forEach(x => x.classList.toggle('on', x === b)); });
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
