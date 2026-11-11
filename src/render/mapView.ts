@@ -4,11 +4,12 @@ import {
   HEX_SIZE, depthOrder, pickTile, tileGeometry, zoomAt, type Camera,
 } from './projection';
 import { SECTOR_RESOURCES } from '../sim/worldgen';
+import { makeVignette } from './style';
 
 export { HEX_SIZE };
 
 export const RESOURCE_COLORS: Record<string, number> = {
-  wood: 0x3f8f3f, stone: 0x8a8a96, ore: 0xb5651d, water: 0x3a7bd5, food: 0xd9c54a, gold: 0xffd700,
+  wood: 0x3f6f48, stone: 0x7d7d8c, ore: 0x9a6a3a, water: 0x3a6a8c, food: 0xc9b45a, gold: 0xe0b84a,
 };
 export const RESOURCE_NAMES: Record<string, string> = {
   wood: 'Дерево', stone: 'Камінь', ore: 'Руда', water: 'Вода', food: 'Їжа', gold: 'Золото',
@@ -53,6 +54,10 @@ export class MapView {
   constructor(app: Application, private getState: () => MapState) {
     this.world.addChild(this.tiles, this.overlay);
     app.stage.addChild(this.world);
+    // віньєтка в стилі міста; видима лише разом із картою
+    const vig = makeVignette(), fit = () => vig.resize(app.screen.width, app.screen.height);
+    app.stage.addChild(vig.sprite); fit(); app.renderer.on('resize', fit);
+    app.ticker.add(() => { vig.sprite.visible = this.world.visible; });
     this.world.position.set(app.screen.width / 2, app.screen.height / 2);
     this.world.scale.set(0.9);
     const el = app.canvas;
