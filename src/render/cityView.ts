@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Sprite } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { BuildingKind } from '../shared';
 import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE, SECTOR_CELLS, SECTOR_SIZE, TRAIL_BRUSH_TILES, isActiveCell } from '../shared';
 import { genBorderNode, mixNodeSeed } from '../sim/nodegen';
@@ -9,10 +9,12 @@ import { FOOTPRINT, JOB_OF, MAX_WORKERS, NPC_TILES, STONE_TILES } from '../sim/b
 import { NPC_STAT_COUNT, PROFESSIONS, RESOURCE_KINDS, TASKS, statIndex } from '../shared';
 import {
   Atmosphere, OAK_VARIANTS, PALETTE, PINE_VARIANTS, Particles, ROCK_VARIANTS, actFrames, actRate, buildingArt, classOf, cycleFrame, frameId, hitFrame, initStyle, nextTime,
-  spr, toolOf, treeSpriteId, variant, walkFrame, IDLE_FRAMES, type Tool,
+  spr, toolOf, treeSpriteId, variant, walkFrame, IDLE_FRAMES, CLASSES, type Tool,
 } from './style';
 import { ISO_Y, clampCamInside, planeToIso, pointInPoly, screenToPlane, zoomAt, type Camera, type Vec2 } from './projection';
 import { Surroundings } from './surroundings';
+import { GrassLayer } from './grassLayer';
+import { LOD_CONFIG, Lod } from './lod';
 import { lerpPos, TickClock } from './interp';
 import { BuildingGhost } from './buildingGhost';
 import { CityHud } from '../ui/cityHud';
@@ -31,9 +33,11 @@ const BUCKET = SECTOR_SIZE / NB;
 
 
 /** Статичний об'єкт шару глибини: спрайти (дерево, камінь, споруда) + поліг. влучання й виділення. */
-interface Obj { sprites: Sprite[]; pick: number[] | null; tile: { x: number; y: number } | null; sel: Sel | null }
+interface Obj { sprites: Sprite[]; pick: number[] | null; tile: { x: number; y: number } | null; sel: Sel | null; tree?: { id: string; flip: boolean; ph: number } }
 /** Візуал жителя: спрайт, ноша, лічильники анімації. */
 interface NpcVis { s: Sprite; carry: Sprite; lx: number; ly: number; dist: number; dir: number; frame: number; row: number }
+/** Колір точки жителя на дальньому зумі (за класом), кеш hex із CLASSES. */
+const DOT_COLOR: Record<string, number> = Object.fromEntries(Object.entries(CLASSES).map(([k, c]) => [k, parseInt(c.cloak.slice(1), 16)]));
 const WORK_TASK = TASKS.indexOf('work');
 const SIZE_STAT = statIndex('size');
 const RES_BUNDLE: Record<string, string> = { wood: 'wood', stone: 'stone', planks: 'planks', food: 'food' };
@@ -48,6 +52,12 @@ export class CityView {
   private npcVis = new Map<number, NpcVis>();
   private atmo: Atmosphere;
   private parts = new Particles();
+  private grass = new GrassLayer();
+  private lod = new Lod(1);
+  private swayDirty = false;
+  private swaying = 0;
+  private npcShown = 0;
+  private npcDots = 0;
   private animT = 0;
   private smokers: { x: number; y: number; z: number }[] = [];
   private waterTiles: number[] = [];
@@ -87,6 +97,7 @@ export class CityView {
     this.drawWater();
     this.root.addChild(this.shine);
     this.root.addChild(this.fieldLayer);
+    this.root.addChild(this.grass.layer);
     for (let r = 0; r < NB; r++) {
       const c = new Container();
       c.sortableChildren = true;
@@ -461,7 +472,7 @@ export class CityView {
       const id = grown ? treeSpriteId(cx, cy, OAK_VARIANTS, PINE_VARIANTS) : (variant(cx, cy, 2, 9) ? 'stump' : 'sapling');
       const a = spr(id), rw = (a.w * a.scale) * 0.32, hh = (a.ay * a.scale) * 0.92;
       return { row, obj: {
-        tile, sel: grown ? { t: 'node', cx, cy } : null, sprites: [mk(id, flip)],
+        tile, sel: grown ? { t: 'node', cx, cy } : null, sprites: [mk(id, flip)], tree: grown ? { id, flip, ph: variant(cx, cy, 628, 7) / 100 } : undefined,
         pick: grown ? [base.x - rw, base.y - hh, base.x + rw, base.y - hh, base.x + rw * 0.4, base.y + 2, base.x - rw * 0.4, base.y + 2] : null,
       } };
     }
@@ -523,6 +534,7 @@ export class CityView {
       const objs: Obj[] = [];
       for (let cx = 0; cx < SECTOR_CELLS; cx++) { const n = this.nodeObj(rt, seed, cx, cy); if (n) objs.push(n.obj); }
       this.nodeRows[cy] = objs;
+      if (!this.lod.flags.propsDetail) for (const o of objs) this.setTreeArt(o, true);
       const sprites = objs.flatMap((o) => o.sprites);
       for (const sp of sprites) this.rowCont[cy].addChild(sp);
       this.nodeSpr[cy] = sprites;
@@ -559,6 +571,9 @@ export class CityView {
     this.cull();
     const dt = Math.min(0.05, this.app.ticker.deltaMS / 1000);
     if (this.speed > 0) this.animT += dt;
+    this.updateLod();
+    this.swayTrees();
+    this.grass.update(this.cam, this.app.screen.width, this.app.screen.height, this.animT, this.lod.flags.grass, (px, py) => this.grassFree(px, py));
     this.drawNpcs(dt);
     this.atmo.update(dt);
     this.parts.update(dt);
@@ -584,11 +599,63 @@ export class CityView {
   };
 
 
+  /** Оновлює прапори LOD від зуму; при зміні перемикає спрощений/повний вигляд дерев, вогні й світляки. */
+  private updateLod(): void {
+    const prevDetail = this.lod.flags.propsDetail;
+    if (this.lod.update(this.cam.zoom) || this.lodInit) {
+      this.lodInit = false;
+      const f = this.lod.flags;
+      this.atmo.lights.visible = f.lights;
+      this.atmo.fliesOn = f.particles;
+      if (f.propsDetail !== prevDetail) {
+        for (const row of this.nodeRows) for (const o of row) this.setTreeArt(o, !f.propsDetail);
+      }
+    }
+  }
+  private lodInit = true;
+  /** Повний або спрощений спрайт дерева (дальній LOD). */
+  private setTreeArt(o: Obj, far: boolean): void {
+    if (!o.tree) return;
+    const s = o.sprites[0], a = spr(far ? 'treefar' : o.tree.id);
+    s.texture = a.tex; s.anchor.set(a.ax / a.w, a.ay / a.h); s.scale.set(o.tree.flip ? -a.scale : a.scale, a.scale);
+  }
+  /** Колихання дерев: лише видимі, лише при близькому зумі, не більше `maxSway`; на відході нахили скидаються. */
+  private swayTrees(): void {
+    if (!this.lod.flags.sway) {
+      if (this.swayDirty) { for (const row of this.nodeRows) for (const o of row) if (o.tree) o.sprites[0].skew.x = 0; this.swayDirty = false; }
+      this.swaying = 0;
+      return;
+    }
+    const z = this.cam.zoom, cx = this.cam.x, cy = this.cam.y, w = this.app.screen.width, h = this.app.screen.height, t = this.animT;
+    const amp = LOD_CONFIG.treeSwayAmp;
+    let n = 0;
+    for (let r = 0; r < NB && n < LOD_CONFIG.maxSway; r++) {
+      if (!this.rowCont[r].visible) continue;
+      for (const o of this.nodeRows[r]) {
+        if (!o.tree) continue;
+        const s = o.sprites[0], sx = s.x * z + cx, sy = s.y * z + cy;
+        if (sx < -80 || sx > w + 80 || sy < -60 || sy > h + 160) continue;
+        s.skew.x = (Math.sin(t * 1.3 + o.tree.ph) * 0.6 + Math.sin(t * 0.55 + s.x * 0.012) * 0.4) * amp; // власне хитання + хвиля вітру
+        if (++n >= LOD_CONFIG.maxSway) break;
+      }
+    }
+    this.swaying = n; this.swayDirty = true;
+  }
+  /** Чи можна поставити пучок трави в точці площини: не вода й не дорога/стежка. */
+  private grassFree(px: number, py: number): boolean {
+    const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+    if (tx < 0 || ty < 0 || tx >= SECTOR_SIZE || ty >= SECTOR_SIZE) return true;
+    const rt = getSectorRt(this.w, this.sector);
+    return rt.water[ty * SECTOR_SIZE + tx] !== 1 && !rt.stage[ty * SECTOR_SIZE + tx];
+  }
+
   /** Жителі: спрайти з пулу; кадр — ходьба (за відстанню), дія (за часом) або спокій. Ноги й тіло — один кадр, тож не розходяться. */
   private drawNpcs(dt: number): void {
     const n = this.w.state.npcs, npc = this.w.npc, alpha = this.clock.alpha(performance.now());
     const seen = new Set<number>();
-    const zoomOk = this.cam.zoom > 0.45;
+    const f = this.lod.flags, zoomOk = f.particles, W = this.app.screen.width, H = this.app.screen.height, z = this.cam.zoom, camX = this.cam.x, camY = this.cam.y;
+    const dotSize = LOD_CONFIG.dotPx / z;
+    let shown = 0, dots = 0;
     for (let i = 0; i < n.capacity; i++) {
       if (!n.alive[i] || n.sector[i] !== this.sector) continue;
       seen.add(i);
@@ -604,10 +671,23 @@ export class CityView {
       const moved = Math.hypot(px - v.lx, py - v.ly);
       if (Math.abs(px - v.lx) > 0.05) v.dir = px > v.lx ? 1 : -1;
       v.lx = px; v.ly = py; v.dist += moved;
+      const base = planeToIso(px, py, 0);
+      if (v.row !== row) { this.rowCont[row].addChild(v.s, v.carry); v.row = row; }
+      const sx = base.x * z + camX, sy = base.y * z + camY;
+      if (sx < -40 || sx > W + 40 || sy < -60 || sy > H + 50) { v.s.visible = false; v.carry.visible = false; continue; } // поза екраном: без анімації
+      v.s.visible = true; shown++;
       const cls = classOf(PROFESSIONS[n.profession[i]] ?? 'idle'), tool = toolOf(cls);
+      if (!f.npcSprite) { // дальній зум: кольорова точка без текстури й анімації
+        if (v.frame !== -2) { v.s.texture = Texture.WHITE; v.s.anchor.set(0.5, 1); v.frame = -2; }
+        v.s.tint = DOT_COLOR[cls] ?? 0x6e6a72; v.s.width = dotSize; v.s.height = dotSize;
+        v.s.position.set(base.x, base.y); v.s.zIndex = py; v.carry.visible = false; dots++;
+        continue;
+      }
+      if (v.frame === -2) { v.s.tint = 0xffffff; v.frame = -1; }
       const working = n.task[i] === WORK_TASK && moved < 0.05, walking = !working && moved > 0.02;
       let anim: 'idle' | 'walk' | 'act', fi: number;
-      if (working && actFrames(tool)) { anim = 'act'; fi = cycleFrame(this.animT + i * 0.37, actRate(tool), actFrames(tool)); }
+      if (!f.npcFrames) { anim = 'idle'; fi = 0; } // середній зум: один статичний кадр (без ніг і ударів)
+      else if (working && actFrames(tool)) { anim = 'act'; fi = cycleFrame(this.animT + i * 0.37, actRate(tool), actFrames(tool)); }
       else if (walking) { anim = 'walk'; fi = walkFrame(v.dist); }
       else { anim = 'idle'; fi = cycleFrame(this.animT + i * 0.61, 0.6, IDLE_FRAMES); }
       const key = (anim === 'act' ? 200 : anim === 'walk' ? 100 : 0) + fi + (cls.length * 1000);
@@ -619,9 +699,7 @@ export class CityView {
       }
       const small = n.stats[i * NPC_STAT_COUNT + SIZE_STAT] < 2 ? 0.82 : 1;
       v.s.scale.set(a.scale * small * v.dir, a.scale * small);
-      const base = planeToIso(px, py, 0);
       v.s.position.set(base.x, base.y); v.s.zIndex = py;
-      if (v.row !== row) { this.rowCont[row].addChild(v.s, v.carry); v.row = row; }
       if (walking && zoomOk && Math.random() < dt * 4) this.parts.emit({ x: px, y: py, z: 0.5, vx: (Math.random() - 0.5) * 6, vz: 4, g: 8, life: 0.45, col: 0xc9b48a, size: 0.7, a: 0.5, kind: 'dust' });
       // ноша над головою: колоди/камінь/дошки/їжа; оброблене дерево — дошки
       if (n.carryAmount[i]) {
@@ -632,6 +710,7 @@ export class CityView {
       } else v.carry.visible = false;
     }
     for (const [i, v] of this.npcVis) if (!seen.has(i)) { v.s.destroy(); v.carry.destroy(); this.npcVis.delete(i); }
+    this.npcShown = shown; this.npcDots = dots;
   }
 
   /** Удар інструмента: тріски, іскри, пил, стріла. */
@@ -647,6 +726,7 @@ export class CityView {
 
   /** Дим із димарів і похідних вогнищ (лише у видимій частині екрана). */
   private emitAmbient(dt: number): void {
+    if (!this.lod.flags.particles) return;
     const w = this.app.screen.width, h = this.app.screen.height;
     for (const m of this.smokers) {
       if (Math.random() > dt * 1.2) continue;
@@ -742,13 +822,21 @@ export class CityView {
   }
 
   /** Для автотестів: стан вибору й екранні координати об'єктів. */
-  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; layers: { ground: number; base: number; ghost: number; hover: number }; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; time: string; lights: number; particles: number; npcSprites: number; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
+  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; layers: { ground: number; base: number; ghost: number; hover: number }; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; time: string; lights: number; particles: number; npcSprites: number; lod: { flags: Record<string, boolean>; swaying: number; grass: number; npcShown: number; npcDots: number; sprites: number }; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
     const scr = (x: number, y: number, z: number) => { const i = planeToIso(x * TILE, y * TILE, z); return { sx: i.x * this.cam.zoom + this.cam.x, sy: i.y * this.cam.zoom + this.cam.y }; };
     const n = this.w.state.npcs, npcs: { id: number; sx: number; sy: number }[] = [];
     for (let i = 0; i < n.capacity; i++) if (n.alive[i] && n.sector[i] === this.sector) npcs.push({ id: i, ...scr(this.npcXY(i).x, this.npcXY(i).y, 3) });
     const buildings = this.w.state.buildings.map((b) => ({ id: b.id, kind: b.kind, ...scr(b.cell.x + b.size.w / 2, b.cell.y + b.size.h / 2, 6) }));
     return { build: this.selected, sel: this.sel, following: this.following, ghost: this.ghost.g.visible && !!this.ghost.g.parent,
-      layers: { ground: this.root.getChildIndex(this.ground), base: this.ghost.base.parent ? this.root.getChildIndex(this.ghost.base) : -1, ghost: this.ghost.g.parent ? this.root.getChildIndex(this.ghost.g) : -1, hover: this.root.getChildIndex(this.hoverG) }, speed: this.speed, tick: this.w.state.tick, zoom: this.cam.zoom, npcs, time: this.atmo.key, lights: this.atmo.lightCount, particles: this.parts.count, npcSprites: this.npcVis.size, buildings };
+      layers: { ground: this.root.getChildIndex(this.ground), base: this.ghost.base.parent ? this.root.getChildIndex(this.ghost.base) : -1, ghost: this.ghost.g.parent ? this.root.getChildIndex(this.ghost.g) : -1, hover: this.root.getChildIndex(this.hoverG) }, speed: this.speed, tick: this.w.state.tick, zoom: this.cam.zoom, npcs, time: this.atmo.key, lights: this.atmo.lightCount, particles: this.parts.count, npcSprites: this.npcVis.size, lod: { flags: { ...this.lod.flags }, swaying: this.swaying, grass: this.grass.count, npcShown: this.npcShown, npcDots: this.npcDots, sprites: this.countSprites(this.root) }, buildings };
+  }
+
+  /** Скільки спрайтів реально потрапить у кадр (видимі контейнери й спрайти): метрика навантаження для headless-перевірок. */
+  private countSprites(c: Container): number {
+    if (!c.visible) return 0;
+    let n = c instanceof Sprite ? 1 : 0;
+    for (const ch of c.children) n += ch instanceof Container ? this.countSprites(ch) : 0;
+    return n;
   }
 
   destroy(): void {

@@ -64,7 +64,25 @@ function rock(seed: number, r: number) {
   };
 }
 
+export const TUFT_VARIANTS = 3;
+function tuft(seed: number) {
+  return (c: Ctx) => {
+    const R = rng(seed);
+    for (let i = 0; i < 5; i++) {
+      const x = 2 + i * 2 + ((R() * 2) | 0), h = 4 + ((R() * 5) | 0);
+      c.fillStyle = i % 2 ? '#4f6f3a' : '#6f8f45';
+      for (let y = 0; y < h; y++) c.fillRect(x + (y > h - 3 ? ((R() * 2) | 0) - 1 : 0), 11 - y, 1, 1);
+    }
+  };
+}
+
 export function registerProps(): void {
+  // Спрощене дерево для дальнього LOD: одна пляма крони + стовбур (мало пікселів, виглядає як ліс здалеку)
+  defineSprite({ id: 'treefar', w: 16, h: 20, ax: 8, ay: 19, scale: PROP_SCALE * 3.4, paint: (c) => {
+    c.fillStyle = '#241a20'; c.fillRect(7, 13, 2, 6);
+    disc(c, 8, 8, 7, '#2c4638'); disc(c, 7, 7, 5, '#46663f');
+  } });
+  for (let i = 0; i < TUFT_VARIANTS; i++) defineSprite({ id: `tuft${i}`, w: 16, h: 12, ax: 8, ay: 11, scale: 0.5, paint: tuft(i * 23 + 3) });
   for (let i = 0; i < OAK_VARIANTS; i++) defineSprite({ id: `oak${i}`, w: 56, h: 72, ax: 28, ay: 70, scale: PROP_SCALE, paint: oak((i + 1) * 77, i === 2) });
   for (let i = 0; i < PINE_VARIANTS; i++) defineSprite({ id: `pine${i}`, w: 40, h: 72, ax: 20, ay: 70, scale: PROP_SCALE, paint: pine((i + 1) * 31) });
   for (let i = 0; i < BUSH_VARIANTS; i++) defineSprite({ id: `bush${i}`, w: 24, h: 14, ax: 12, ay: 13, scale: PROP_SCALE, paint: bush((i + 1) * 13) });

@@ -9,7 +9,7 @@ export { Atmosphere, TIMES, makeVignette, nextTime, type TimeKey } from './atmos
 export { Particles } from './particles';
 export { makeGround } from './ground';
 export * from './characters';
-export { OAK_VARIANTS, PINE_VARIANTS, ROCK_VARIANTS, BUSH_VARIANTS, PROP_SCALE } from './props';
+export { OAK_VARIANTS, PINE_VARIANTS, ROCK_VARIANTS, BUSH_VARIANTS, TUFT_VARIANTS, PROP_SCALE } from './props';
 
 /** Палітра місцевості (вода, стежки) — єдине місце. */
 export const PALETTE = {

@@ -50,6 +50,8 @@ export class Atmosphere {
   private fireK = TIMES.dusk.fire;
   private t = 0;
   key: TimeKey = 'dusk';
+  /** LOD: світляки лише при близькому зумі. */
+  fliesOn = true;
   private w = 1; private h = 1;
   private bounds: { minX: number; maxX: number };
 
@@ -114,6 +116,8 @@ export class Atmosphere {
     for (const f of this.fogs) { f.s.x += f.v * dt; if (f.s.x > this.bounds.maxX) f.s.x = this.bounds.minX; }
     for (let i = 0; i < this.flies.length; i++) {
       const f = this.flies[i];
+      if (!this.fliesOn) { f.s.visible = false; continue; }
+      f.s.visible = true;
       f.ph += dt * f.sp;
       f.x = (f.x + Math.cos(f.ph * 0.7) * dt * 0.01 + 1) % 1; f.y = (f.y + Math.sin(f.ph * 0.9) * dt * 0.012 + 1) % 1;
       const on = (Math.sin(f.ph * 2) + 1) / 2;
