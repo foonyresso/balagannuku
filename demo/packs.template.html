@@ -1,0 +1,202 @@
+<title>Балаганники готові паки</title>
+<style>
+  /* Макет: повноекранна ізо-сцена, піксельарт Kenney (CC0), тонування в теплу приглушену гаму, мʼяка віньєтка. Керування внизу ліворуч. */
+  :root { --bg: #1b2016; --panel: rgba(28, 22, 18, 0.82); --fg: #efe3cc; --dim: #b9a98c; --accent: #e3a857; --line: #5a4a38; color-scheme: dark; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); overflow: hidden; font: 14px/1.4 "Trebuchet MS", system-ui, sans-serif; }
+  #stage { position: fixed; inset: 0; touch-action: none; cursor: grab; }
+  #stage:active { cursor: grabbing; }
+  #stage canvas { display: block; image-rendering: pixelated; }
+  #atmo { position: fixed; inset: 0; pointer-events: none; z-index: 2; transition: opacity .3s;
+    background: radial-gradient(ellipse at 50% 42%, rgba(255, 214, 150, .14) 0%, rgba(0, 0, 0, 0) 48%, rgba(24, 10, 28, .62) 100%),
+      linear-gradient(180deg, rgba(255, 190, 120, .08), rgba(70, 40, 100, .18)); mix-blend-mode: multiply; }
+  #ui { position: fixed; z-index: 5; left: 0; bottom: 0; padding: 12px max(16px, env(safe-area-inset-left, 0px)) max(12px, env(safe-area-inset-bottom, 0px));
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: 100%; box-sizing: border-box; }
+  #ui .box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; display: flex; gap: 8px; align-items: center; }
+  #ui button { font: inherit; color: var(--fg); background: #3b2e22; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  #ui button:hover, #ui button:focus-visible { border-color: var(--accent); outline: none; }
+  #ui button[aria-pressed="true"] { background: #6b4c28; border-color: var(--accent); }
+  #cap { position: fixed; z-index: 5; top: 0; left: 0; padding: 10px max(16px, env(safe-area-inset-left, 0px)); color: var(--dim); font-size: 12px; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  #cap b { color: var(--fg); font-size: 15px; display: block; }
+  #err { position: fixed; z-index: 9; left: 0; right: 0; bottom: 0; margin: 0; padding: 6px 12px; background: #4a1010; color: #ffb0b0; font: 12px monospace; display: none; white-space: pre-wrap; }
+</style>
+<div id="stage"></div>
+<div id="atmo"></div>
+<div id="cap"><b>Варіант A: готові безкоштовні паки</b>Kenney Tiny Town + Tiny Dungeon (CC0), ізометрія 42°. Тягни мишею, колесо: масштаб.</div>
+<div id="ui">
+  <div class="box"><button id="bTone" aria-pressed="false">Теплий тон і віньєтка</button><button id="bBob" aria-pressed="true">Підстрибування при ході</button><button id="bReset">Центр</button></div>
+</div>
+<pre id="err"></pre>
+<script>{{PIXI}}</script>
+<script>
+(async () => {
+const errBox = document.getElementById('err');
+const fail = (e) => { errBox.style.display = 'block'; errBox.textContent += String(e && e.stack || e) + '\n'; };
+window.addEventListener('error', (e) => fail(e.message));
+try {
+const ATLAS = '{{ATLAS}}';
+const TD = 132, COLS = 16, T = 16, ISO_Y = Math.sin(42 * Math.PI / 180);
+const MANIFEST = {
+  /* Персонажі: body/item/shield — індекси плиток атласу (Tiny Town 0..131, Tiny Dungeon 132+n).
+     Щоб замінити своїм малюнком, додай "png": "sprites/ім'я.png" (16×16 або 32×16, піксельарт) у sprites/manifest.json. */
+  characters: {
+    knight:     { label: 'лицар',   body: TD + 96,  item: TD + 106, shield: TD + 101 },
+    lumberjack: { label: 'лісоруб', body: TD + 86,  item: TD + 118 },
+    wizard:     { label: 'маг',     body: TD + 84,  item: TD + 129 },
+    smith:      { label: 'коваль',  body: TD + 98,  item: TD + 117 },
+    farmer:     { label: 'фермерка',body: TD + 99,  item: 116 },
+    hunter:     { label: 'мисливець',body: TD + 112, item: 118 },
+    miner:      { label: 'каменяр', body: TD + 88,  item: 115 },
+    rogue:      { label: 'розбійник',body: TD + 100, item: TD + 104, shield: TD + 102 },
+    villager:   { label: 'житель',  body: TD + 85 },
+    dwarf:      { label: 'гном',    body: TD + 87,  item: TD + 119 },
+  },
+  buildings: {
+    townhall:  [[48,49,49,49,49,50],[60,61,61,61,61,62],[76,88,89,90,88,78],[76,77,77,77,77,78]],
+    house:     [[52,53,54],[64,65,66],[84,85,84]],
+    house2:    [[48,49,50],[60,61,62],[88,89,88]],
+    warehouse: [[52,53,53,54],[64,65,65,66],[72,74,74,75]],
+    lumberjack:[[52,53,54,-1],[64,65,66,-1],[72,85,73,106]],
+    sawmill:   [[52,53,53,54],[64,65,65,66],[73,74,57,106]],
+    hunter:    [[52,53,54,-1],[64,65,66,-1],[72,85,95,118]],
+    quarry:    [[-1,126,126,-1],[43,126,115,43]],
+  },
+};
+if (location.search.includes('manifest')) try { const r = await fetch('sprites/manifest.json'); if (r.ok) { const j = await r.json(); for (const k of Object.keys(j.characters || {})) MANIFEST.characters[k] = { ...MANIFEST.characters[k], ...j.characters[k] }; } } catch (e) { /* лише в репозиторії */ }
+
+const img = new Image(); img.src = ATLAS; await img.decode();
+const nearest = (t) => { t.source.scaleMode = 'nearest'; return t; };
+function compose(w, h, parts) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+  for (const p of parts) if (p.n >= 0) g.drawImage(img, (p.n % COLS) * T, Math.floor(p.n / COLS) * T, T, T, p.x, p.y, p.s || T, p.s || T);
+  return nearest(PIXI.Texture.from(c));
+}
+const tile = (n) => compose(T, T, [{ n, x: 0, y: 0 }]);
+const bTex = (grid) => compose(grid[0].length * T, grid.length * T, grid.flatMap((row, ry) => row.map((n, rx) => ({ n, x: rx * T, y: ry * T }))));
+async function charTex(c) {
+  if (c.png) { try { const t = await PIXI.Assets.load(c.png); return nearest(t); } catch (e) { /* падаємо на атлас */ } }
+  const parts = [];
+  if (c.shield !== undefined) parts.push({ n: c.shield, x: 1, y: 4, s: 12 });
+  parts.push({ n: c.body, x: 8, y: 0 });
+  if (c.item !== undefined) parts.push({ n: c.item, x: 16, y: 1 });
+  return compose(32, 16, parts);
+}
+
+const stage = document.getElementById('stage');
+const app = new PIXI.Application();
+await app.init({ resizeTo: stage, background: 0x1b2016, antialias: false, autoDensity: true, resolution: window.devicePixelRatio || 1, preference: 'webgl' });
+stage.appendChild(app.canvas);
+
+// --- світ: 36×24 плиток ---
+const W = 36, H = 24;
+let seed = 7; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+const world = new PIXI.Container();
+const ground = new PIXI.Container(); ground.scale.y = ISO_Y; // земля стискається за проєкцією гри
+const objs = new PIXI.Container(); objs.sortableChildren = true;
+world.addChild(ground, objs); app.stage.addChild(world);
+
+const grass = [tile(0), tile(0), tile(0), tile(1), tile(1), tile(2)];
+const dirt = [tile(25), tile(25), tile(39), tile(40), tile(41), tile(42)];
+const path = new Set();
+const mark = (x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) path.add(x + ',' + y); };
+mark(0, 12, W - 1, 13); mark(17, 7, 18, 12); mark(7, 13, 8, 17); mark(27, 13, 28, 17); mark(11, 6, 12, 12);
+for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+  const p = path.has(x + ',' + y), set = p ? dirt : grass;
+  const s = new PIXI.Sprite(set[Math.floor(rnd() * set.length)]); s.position.set(x * T, y * T); ground.addChild(s);
+}
+const P = (tx, ty) => ({ x: tx * T, y: ty * T * ISO_Y });
+function place(tex, tx, ty, ax = 0.5, ay = 1, shadow = 0) {
+  const s = new PIXI.Sprite(tex); s.anchor.set(ax, ay);
+  const p = P(tx, ty); s.position.set(p.x, p.y); s.zIndex = p.y;
+  if (shadow) { const g = new PIXI.Graphics().ellipse(p.x, p.y - 1, shadow, shadow * 0.28).fill({ color: 0x120a10, alpha: 0.3 }); g.zIndex = p.y - 0.5; objs.addChild(g); }
+  objs.addChild(s); return s;
+}
+const B = MANIFEST.buildings, bt = Object.fromEntries(Object.entries(B).map(([k, g]) => [k, bTex(g)]));
+const blocked = [];
+const building = (k, tx, ty) => { const t = bt[k]; place(t, tx, ty, 0.5, 1, t.width * 0.55); blocked.push({ x0: tx - t.width / T / 2 - 1, x1: tx + t.width / T / 2 + 1, y0: ty - 4, y1: ty + 1.5 }); };
+building('townhall', 17.5, 7); building('house', 11.5, 6); building('house2', 24, 7.5); building('warehouse', 6, 16.6);
+building('lumberjack', 28, 16.8); building('sawmill', 14, 20.5); building('hunter', 31.5, 6.5); building('quarry', 3.5, 8);
+// ферма: огорожа й грядки
+const fence = { l: tile(44), m: tile(45), r: tile(46), post: tile(47), sprout: tile(17), low: tile(80), lm: tile(81), lr: tile(82) };
+for (let x = 20; x <= 25; x++) { place(x === 20 ? fence.l : x === 25 ? fence.r : fence.m, x + 0.5, 17.2, 0.5, 1); place(x === 20 ? fence.lr : x === 25 ? fence.lr : fence.lm, x + 0.5, 21.2, 0.5, 1); }
+for (let y = 18; y <= 20; y++) for (let x = 21; x <= 24; x++) place(fence.sprout, x + 0.5, y + 0.9, 0.5, 1);
+blocked.push({ x0: 19, x1: 26.5, y0: 16, y1: 22 });
+// дерева, гриби, бочки
+const treeIdx = [4, 16, 28, 5, 3, 15, 27].map(tile);
+const mush = tile(29), barrel = tile(130), cart = tile(57);
+const free = (x, y) => !blocked.some((b) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) && !path.has(Math.floor(x) + ',' + Math.floor(y)) && !path.has(Math.floor(x) + ',' + Math.floor(y - 1));
+let placed = 0, guard = 0;
+while (placed < 70 && guard++ < 4000) {
+  const x = 0.5 + rnd() * (W - 1), y = 1 + rnd() * (H - 1.5), edge = x < 4 || x > W - 4 || y < 4 || y > H - 3;
+  if (!free(x, y) || (!edge && rnd() < 0.7)) continue;
+  place(treeIdx[Math.floor(rnd() * treeIdx.length)], x, y, 0.5, 0.95, 5); placed++;
+}
+for (let i = 0; i < 9; i++) { const x = 1 + rnd() * (W - 2), y = 2 + rnd() * (H - 3); if (free(x, y)) place(mush, x, y, 0.5, 1); }
+place(barrel, 8.6, 15.5, 0.5, 1, 5); place(barrel, 9.2, 15.7, 0.5, 1, 5); place(cart, 12.2, 14.4, 0.5, 1, 6);
+
+// --- персонажі: статичний спрайт + процедурний рух ---
+const chars = [];
+const spots = [[16, 12.5], [9, 12.8], [26, 12.6], [13, 13.2], [22, 13], [30, 12.4], [6, 18], [18, 14.5], [27, 18], [10, 10]];
+let ci = 0;
+for (const [name, def] of Object.entries(MANIFEST.characters)) {
+  const tex = await charTex(def), [sx, sy] = spots[ci++ % spots.length];
+  const s = new PIXI.Sprite(tex); s.anchor.set(0.5, 0.92);
+  const sh = new PIXI.Graphics().ellipse(0, 0, 6, 2).fill({ color: 0x120a10, alpha: 0.35 });
+  objs.addChild(sh, s);
+  chars.push({ name, def, s, sh, x: sx, y: sy, tx: sx, ty: sy, speed: 1.1 + rnd() * 0.9, wait: rnd() * 2, ph: rnd() * 6, face: 1 });
+}
+const pickTarget = (c) => {
+  for (let k = 0; k < 20; k++) { const x = 2 + rnd() * (W - 4), y = 5 + rnd() * (H - 7); if (path.has(Math.floor(x) + ',' + Math.floor(y)) || rnd() < 0.15) { c.tx = x; c.ty = y; return; } }
+  c.tx = c.x; c.ty = c.y;
+};
+let bob = true, last = performance.now(), time = 0;
+app.ticker.add(() => {
+  const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+  for (const c of chars) {
+    let moving = false;
+    if (c.wait > 0) c.wait -= dt;
+    else {
+      const dx = c.tx - c.x, dy = c.ty - c.y, d = Math.hypot(dx, dy);
+      if (d < 0.1) { c.wait = 0.8 + rnd() * 2.5; pickTarget(c); }
+      else { const st = Math.min(d, c.speed * dt * 4); c.x += (dx / d) * st; c.y += (dy / d) * st; moving = true; if (Math.abs(dx) > 0.05) c.face = dx > 0 ? 1 : -1; }
+    }
+    const p = P(c.x, c.y), t = time * 9 + c.ph, hop = moving && bob ? Math.abs(Math.sin(t)) : 0;
+    c.s.position.set(p.x, p.y - hop * 2.6);
+    c.s.rotation = moving && bob ? Math.sin(t) * 0.13 : 0;
+    c.s.scale.set(c.face * (1 + (moving && bob ? hop * -0.04 : 0)), 1 + (moving && bob ? hop * 0.06 : 0));
+    c.s.zIndex = p.y; c.sh.position.set(p.x, p.y - 0.5); c.sh.zIndex = p.y - 0.5;
+    c.sh.scale.set(1 - hop * 0.18);
+  }
+});
+
+// --- тонування (теплий приглушений тон) ---
+const filter = new PIXI.ColorMatrixFilter();
+filter.saturate(-0.28, true); filter.contrast(0.06, true);
+const m = filter.matrix, mulRow = (r, k) => { for (let j = 0; j < 5; j++) m[r * 5 + j] *= k; };
+mulRow(0, 1.07); mulRow(1, 0.99); mulRow(2, 0.84);
+let tone = false; world.filters = [];
+const atmo = document.getElementById('atmo'); atmo.style.opacity = 0;
+const setTone = (on) => { tone = on; world.filters = on ? [filter] : []; atmo.style.opacity = on ? 1 : 0; document.getElementById('bTone').setAttribute('aria-pressed', on); };
+document.getElementById('bTone').onclick = () => setTone(!tone);
+document.getElementById('bBob').onclick = (e) => { bob = !bob; e.currentTarget.setAttribute('aria-pressed', bob); };
+
+// --- камера: пан і зум ---
+let zoom = 3;
+const center = () => { zoom = Math.max(1.5, Math.min(5, Math.floor(Math.min(app.screen.width / (W * T * 0.8), app.screen.height / (H * T * ISO_Y * 0.8)) * 2) / 2)); const p = P(W / 2, H / 2); world.scale.set(zoom); world.position.set(app.screen.width / 2 - p.x * zoom, app.screen.height / 2 - p.y * zoom); };
+center(); document.getElementById('bReset').onclick = center;
+app.renderer.on('resize', center);
+let drag = null;
+stage.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, wx: world.x, wy: world.y }; stage.setPointerCapture(e.pointerId); });
+stage.addEventListener('pointermove', (e) => { if (drag) world.position.set(drag.wx + e.clientX - drag.x, drag.wy + e.clientY - drag.y); });
+stage.addEventListener('pointerup', () => { drag = null; });
+stage.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const k = e.deltaY < 0 ? 1.15 : 1 / 1.15, nz = Math.max(1, Math.min(10, zoom * k));
+  const r = stage.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  world.x = mx - ((mx - world.x) / zoom) * nz; world.y = my - ((my - world.y) / zoom) * nz; zoom = nz; world.scale.set(zoom);
+}, { passive: false });
+
+window.__demo = { ready: true, chars: chars.map((c) => c.name), sprites: objs.children.length, tiles: ground.children.length, app, world };
+} catch (e) { fail(e); window.__demo = { ready: false, error: String(e && e.stack || e) }; }
+})();
+</script>
