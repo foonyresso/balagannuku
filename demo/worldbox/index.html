@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Демо стилю: WorldBox</title>
+<style>
+html,body{margin:0;height:100%;background:#1b2a1f;overflow:hidden;font:13px system-ui,sans-serif;color:#fff}
+canvas{display:block;width:100vw;height:100vh;image-rendering:pixelated;cursor:grab}
+canvas.drag{cursor:grabbing}
+#ui{position:fixed;left:12px;top:12px;background:#000a;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;max-width:260px}
+#ui b{font-size:14px}#ui small{opacity:.75;line-height:1.35}
+#ui label{display:flex;gap:8px;align-items:center}
+#tip{position:fixed;pointer-events:none;background:#000c;padding:3px 7px;border-radius:5px;display:none;white-space:nowrap}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="ui"><b>WorldBox-стиль (демо)</b>
+<small>Статичні спрайти: без покадрової анімації. Рух = переміщення, підстрибування, нахил, віддзеркалення. Ізо ~42°. Тягни — пан, коліщатко — зум.</small>
+<label>Зум <input id="zoom" type="range" min="0.5" max="4" step="0.05" value="1.6"></label>
+<label>Швидкість <input id="spd" type="range" min="0" max="3" step="0.1" value="1"></label>
+<small>Арт: <code>sprites/*.png</code> + <code>manifest.js</code>. Підмініть PNG на свої (ті ж імена) — і оновіть сторінку.</small></div>
+<div id="tip"></div>
+<script src="manifest.js"></script>
+<script>
+const M = window.WB_MANIFEST, S = M.scale, T = M.tile * S;           // S — екранних px на піксель спрайта; T — розмір тайла
+const VIEW_ANGLE_DEG = 42, ISO_Y = Math.sin(VIEW_ANGLE_DEG * Math.PI / 180), ISO_Z = Math.cos(VIEW_ANGLE_DEG * Math.PI / 180); // як у src/render/projection.ts
+const W = 44, H = 34;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const cam = { x: W * T / 2, y: H * T * ISO_Y / 2, zoom: 1.6 };
+const imgs = {};
+let seed = 7; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+const rr = (a, b) => a + rnd() * (b - a);
+
+// ---- світ ----
+const cx0 = W / 2, cy0 = H / 2;
+const pond = { x: 30, y: 10, rx: 5.5, ry: 3.6 };
+const inPond = (x, y, k = 1) => ((x - pond.x) / (pond.rx * k)) ** 2 + ((y - pond.y) / (pond.ry * k)) ** 2 < 1;
+const ground = [];
+for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+  let t = 'grass' + (1 + ((rnd() * 3) | 0)); if (rnd() < 0.07) t = 'grass_flowers';
+  if (inPond(x + .5, y + .5, 1.25)) t = inPond(x + .5, y + .5, 1) ? 'water' : 'sand';
+  ground.push(t);
+}
+const pathTiles = new Set();
+for (let x = 14; x < 30; x++) pathTiles.add(x + ',' + 19);
+for (let y = 15; y < 19; y++) pathTiles.add('22,' + y);
+pathTiles.forEach(k => { const [x, y] = k.split(',').map(Number); ground[y * W + x] = 'dirt'; });
+
+const objs = []; // {sprite,x,y (світ, ноги), solid r}
+const add = (sprite, tx, ty, r = 0) => objs.push({ sprite, x: tx * T, y: ty * T, r });
+add('house', 22, 14.6, 40); add('house', 15.5, 12, 40); add('well', 26, 17.5, 14);
+for (let i = 0; i < 7; i++) add('fence', 17 + i * 0.33 * 1.0 + i * 0.0, 22.4, 0);
+for (let i = 0; i < 55; i++) {
+  const x = rr(1, W - 1), y = rr(2, H - 1);
+  if (inPond(x, y, 1.35) || Math.hypot(x - 21, y - 16) < 8 || (y > 18.6 && y < 20.4 && x > 13 && x < 31)) continue;
+  add(rnd() < 0.55 ? 'tree1' : 'tree2', x, y, 14);
+}
+for (let i = 0; i < 18; i++) { const x = rr(1, W - 1), y = rr(1, H - 1); if (inPond(x, y, 1.3) || Math.hypot(x - 21, y - 16) < 6) continue; add(rnd() < 0.5 ? 'bush' : 'rock', x, y, 8); }
+const blocked = (x, y) => objs.some(o => o.r && Math.hypot(o.x - x, (o.y - y) * 1.0) < o.r + 8) || inPond(x / T, y / T, 1.05);
+function freePoint(cx, cy, rad) { for (let i = 0; i < 40; i++) { const x = cx + rr(-rad, rad), y = cy + rr(-rad, rad); if (x > T && y > T && x < (W - 1) * T && y < (H - 1) * T && !blocked(x, y)) return { x, y }; } return { x: cx, y: cy }; }
+function clearLine(a, b) { for (let i = 1; i <= 12; i++) { const t = i / 12; if (blocked(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)) return false; } return true; }
+
+// ---- персонажі ----
+const actors = [];
+M.characters.forEach((c, i) => {
+  const p = freePoint(21 * T + rr(-5, 5) * T, 19.5 * T + rr(-3, 3) * T, 4 * T);
+  actors.push({ ...c, x: p.x, y: p.y, tx: p.x, ty: p.y, wait: rr(0, 2), face: 1, ph: rr(0, 6), hop: c.hop ?? 3, moving: false });
+});
+// два «скелети»-дублікати щоб було людно
+['warrior', 'mage', 'archer'].forEach(s => { const c = M.characters.find(q => q.sprite === s); const p = freePoint(24 * T, 20 * T, 5 * T); actors.push({ ...c, x: p.x, y: p.y, tx: p.x, ty: p.y, wait: rr(0, 3), face: 1, ph: rr(0, 6), hop: 3, moving: false }); });
+
+// ---- ресурси ----
+function load() {
+  const list = [...Object.values(M.tiles), ...Object.values(M.sprites)];
+  return Promise.all(list.map(e => new Promise(res => { const im = new Image(); im.onload = () => res(); im.onerror = () => { console.error('нема', e.file); res(); }; im.src = e.file; imgs[e.file] = im; })));
+}
+const iso = (x, y, z = 0) => ({ x: (x - cam.x) * cam.zoom + cv.width / 2, y: (y * ISO_Y - z * ISO_Z - cam.y) * cam.zoom + cv.height / 2 });
+function resize() { cv.width = innerWidth; cv.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+let time = 0, spd = 1;
+function update(dt) {
+  time += dt;
+  for (const a of actors) {
+    if (a.moving) {
+      const dx = a.tx - a.x, dy = a.ty - a.y, d = Math.hypot(dx, dy), step = a.speed * 1.6 * dt * spd;
+      if (d <= step) { a.x = a.tx; a.y = a.ty; a.moving = false; a.wait = rr(0.8, 3.5); }
+      else { a.x += dx / d * step; a.y += dy / d * step; if (Math.abs(dx) > 2) a.face = dx > 0 ? 1 : -1; a.ph += dt * spd * (a.speed / 5); }
+    } else {
+      a.wait -= dt * spd;
+      if (a.wait <= 0) { for (let k = 0; k < 8; k++) { const p = freePoint(a.x, a.y, 7 * T); if (clearLine(a, p)) { a.tx = p.x; a.ty = p.y; a.moving = true; break; } } a.wait = 0.5; }
+    }
+  }
+}
+function drawSprite(key, x, y, z, o = {}) {
+  const e = M.sprites[key], im = imgs[e.file]; const p = iso(x, y, z); const k = cam.zoom * S;
+  ctx.save(); ctx.translate(Math.round(p.x), Math.round(p.y)); if (o.rot) ctx.rotate(o.rot); ctx.scale((o.flip ?? 1) * (o.sx ?? 1), o.sy ?? 1);
+  ctx.drawImage(im, -e.ax * k, -e.ay * k, e.w * k, e.h * k); ctx.restore();
+}
+function render() {
+  ctx.imageSmoothingEnabled = false; ctx.fillStyle = '#1b2a1f'; ctx.fillRect(0, 0, cv.width, cv.height);
+  const tw = T * cam.zoom, th = T * ISO_Y * cam.zoom;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const p = iso(x * T, y * T); if (p.x > cv.width || p.y > cv.height || p.x + tw < 0 || p.y + th < 0) continue;
+    ctx.drawImage(imgs[M.tiles[ground[y * W + x]].file], Math.floor(p.x), Math.floor(p.y), Math.ceil(tw) + 1, Math.ceil(th) + 1);
+  }
+  const items = [...objs.map(o => ({ y: o.y, o })), ...actors.map(a => ({ y: a.y, a }))].sort((u, v) => u.y - v.y);
+  for (const it of items) {
+    if (it.o) { drawSprite(it.o.sprite, it.o.x, it.o.y, 0); continue; }
+    const a = it.a, p = iso(a.x, a.y);
+    ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 8 * S * cam.zoom * 0.7, 3 * S * cam.zoom * 0.7 * ISO_Y + 1, 0, 0, 7); ctx.fill();
+    const w = a.moving ? Math.sin(a.ph * 2) : 0, hopZ = a.moving ? Math.abs(w) * a.hop * S * 0.5 : Math.sin(time * 2 + a.ph) * 0.4;
+    drawSprite(a.sprite, a.x, a.y, hopZ, { flip: a.face, rot: a.moving ? w * 0.12 : 0, sx: 1 + (a.moving ? Math.abs(w) * -0.05 : 0), sy: 1 + (a.moving ? Math.abs(w) * 0.06 : Math.sin(time * 2 + a.ph) * 0.015) });
+  }
+}
+let last = performance.now();
+function frame(t) { const dt = Math.min(0.05, (t - last) / 1000); last = t; update(dt); render(); requestAnimationFrame(frame); }
+
+// ---- керування ----
+let drag = null; const tip = document.getElementById('tip');
+cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointerup', () => { drag = null; cv.classList.remove('drag'); });
+cv.addEventListener('pointermove', e => {
+  if (drag) { cam.x -= (e.clientX - drag.x) / cam.zoom; cam.y -= (e.clientY - drag.y) / cam.zoom; drag = { x: e.clientX, y: e.clientY }; }
+  let best = null, bd = 1e9; for (const a of actors) { const p = iso(a.x, a.y, 8 * S * 0.5); const d = Math.hypot(p.x - e.clientX, p.y - e.clientY); if (d < 14 * S * cam.zoom && d < bd) { bd = d; best = a; } }
+  if (best) { tip.style.display = 'block'; tip.style.left = e.clientX + 14 + 'px'; tip.style.top = e.clientY + 14 + 'px'; tip.textContent = best.name; } else tip.style.display = 'none';
+});
+const zs = document.getElementById('zoom');
+function setZoom(z) { cam.zoom = Math.max(0.5, Math.min(4, z)); zs.value = cam.zoom; }
+zs.oninput = () => setZoom(+zs.value); setZoom(1.6);
+cv.addEventListener('wheel', e => { e.preventDefault(); setZoom(cam.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }, { passive: false });
+document.getElementById('spd').oninput = e => { spd = +e.target.value; };
+
+load().then(() => { window.__wb = { actors, objs, cam, ready: true }; requestAnimationFrame(frame); });
+</script></body></html>
