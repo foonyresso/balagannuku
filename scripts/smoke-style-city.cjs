@@ -9,8 +9,8 @@ const check = (name, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', name
   await p.goto(process.env.URL || 'http://localhost:4173');
   await p.waitForSelector('.lb button'); await p.evaluate(() => document.querySelector('.lb').remove());
   await p.waitForTimeout(500);
-  for (const [dx, dy] of [[0,0],[300,0],[-300,0],[0,200],[0,-200],[300,200],[-300,-200]]) {
-    await p.mouse.move(400 + dx / 2, 250 + dy / 2); await p.mouse.down(); await p.mouse.up();
+  for (const [dx, dy] of [[0,0],[300,0],[-300,0],[0,200],[0,-200],[300,200],[-300,-200],[-300,200],[300,-200]]) {
+    await p.mouse.move(400 + dx, 250 + dy); await p.mouse.down(); await p.mouse.up();
     if (!(await p.isDisabled('#play'))) break;
   }
   await p.click('#play'); await p.waitForSelector('#cityHud'); await p.waitForTimeout(1500);
