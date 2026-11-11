@@ -98,6 +98,8 @@ export function planRoute(rt: SectorRt, s: SizeClass, sx: number, sy: number, gx
   let a = 0;
   while (a < last) {
     let b = Math.min(last, a + LOOKAHEAD);
+    // Не зрізаємо повз клітинки зі стежкою: йдемо ними від центру до центру — трафік лягає в одну лінію, а не віялом паралельних.
+    for (let j = a + 1; j < b; j++) if (rt.cellStage[cells[j - 1]] > 0) { b = j; break; }
     while (b > a + 1 && !los(rt.occ, s, px[a], py[a], px[b], py[b])) b--;
     if (b === a + 1 && !los(rt.occ, s, px[a], py[a], px[b], py[b])) {
       const loc = localPath(rt.occ, s, px[a], py[a], px[b], py[b], 12) ?? localPath(rt.occ, s, px[a], py[a], px[b], py[b], 48);
