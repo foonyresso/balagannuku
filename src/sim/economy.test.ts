@@ -202,6 +202,16 @@ describe('економіка', () => {
     setRoadPull(0);
     expect(rowsOf(findPath(grid(12), 2, 10, 60, 10)!).has(12)).toBe(false); // тяги немає
     setRoadPull(1);
+    // частковий маршрут: дорога лише на частині шляху (x 20..40, рядок 12) — іде нею, потім прямо до цілі
+    const part = grid(12); part.cellStage.fill(0);
+    for (let x = 20; x <= 40; x++) part.cellStage[12 * S + x] = TrailStage.Paved;
+    const pp = findPath(part, 2, 10, 60, 10)!;
+    expect(Array.from(pp).filter((c) => Math.floor(c / S) === 12).length).toBeGreaterThanOrEqual(15);
+    expect(Math.floor(pp[pp.length - 1] / S)).toBe(10);
+    for (let x = 20; x <= 40; x++) expect(pp.includes(12 * S + x)).toBe(true); // вся дорога пройдена
+    expect(pp[pp.length - 1]).toBe(10 * S + 60); // далі — до цілі
+    // детермінованість
+    expect(Array.from(findPath(part, 2, 10, 60, 10)!)).toEqual(Array.from(pp));
     for (const st of [TrailStage.Trampled, TrailStage.Road, TrailStage.Paved]) {
       expect(ROAD_SPEED_MULT[st]).toBeGreaterThanOrEqual(1.1);
       expect(ROAD_SPEED_MULT[st]).toBeLessThanOrEqual(1.15);
