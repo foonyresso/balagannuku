@@ -12,7 +12,42 @@ const mk = (id: string): PlayerState => ({
 });
 const CT = (SECTOR_CELLS >> 1) * TILES_PER_CELL + 2;
 
-describe('вода (озера й річки)', () => {
+function components(m: Uint8Array, size: number) {
+  const seen = new Uint8Array(m.length), out: { area: number; w: number; h: number }[] = [];
+  for (let s0 = 0; s0 < m.length; s0++) {
+    if (!m[s0] || seen[s0]) continue;
+    const st = [s0]; seen[s0] = 1;
+    let area = 0, x0 = size, x1 = 0, y0 = size, y1 = 0;
+    while (st.length) {
+      const i = st.pop()!, x = i % size, y = (i / size) | 0;
+      area++; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      for (const j of [i - 1, i + 1, i - size, i + size]) if (j >= 0 && j < m.length && m[j] && !seen[j]) { seen[j] = 1; st.push(j); }
+    }
+    out.push({ area, w: x1 - x0 + 1, h: y1 - y0 + 1 });
+  }
+  return out;
+}
+
+describe('вода (кілька озер, без річок)', () => {
+  it('води мало (< 3% активної зони), є, і лише кілька озер без річок', () => {
+    const zone = (ACTIVE_MAX_TILE - ACTIVE_MIN_TILE) ** 2;
+    for (const seed of [1, 5, 7, 42, 1234, 99991]) {
+      const m = new Uint8Array(SECTOR_SIZE * SECTOR_SIZE);
+      const n = fillWater(seed, m, SECTOR_SIZE);
+      expect(n / zone).toBeLessThan(0.03);
+      expect(n / zone).toBeGreaterThan(0.001);
+      const big = components(m, SECTOR_SIZE).filter((c) => c.area >= 500);
+      expect(big.length).toBeLessThanOrEqual(10);
+      for (const c of big) expect(c.area / (c.w * c.h)).toBeGreaterThan(0.3); // річка — тонка звивиста смуга з малою заповненістю рамки
+    }
+  });
+  it('детермінована за seed', () => {
+    const a = new Uint8Array(SECTOR_SIZE * SECTOR_SIZE), b = new Uint8Array(a.length), c = new Uint8Array(a.length);
+    fillWater(77, a, SECTOR_SIZE); fillWater(77, b, SECTOR_SIZE); fillWater(78, c, SECTOR_SIZE);
+    const same = (x: Uint8Array, y: Uint8Array) => x.every((v, i) => v === y[i]);
+    expect(same(a, b)).toBe(true);
+    expect(same(a, c)).toBe(false);
+  });
   it('fillWater збігається з waterAt (безшовно, без залежності від меж)', () => {
     const m = new Uint8Array(SECTOR_SIZE * SECTOR_SIZE);
     fillWater(9, m, SECTOR_SIZE);
