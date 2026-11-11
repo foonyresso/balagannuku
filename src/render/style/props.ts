@@ -3,7 +3,7 @@ import { disc, poly, rng, type Ctx } from './pixel';
 
 /** Одиниць площини на тексель для природних об'єктів. */
 export const PROP_SCALE = 0.35;
-export const OAK_VARIANTS = 5, PINE_VARIANTS = 3, ROCK_VARIANTS = 3, BUSH_VARIANTS = 3;
+export const OAK_VARIANTS = 5, PINE_VARIANTS = 3, ROCK_VARIANTS = 4, BUSH_VARIANTS = 3;
 
 function oak(seed: number, big: boolean) {
   return (c: Ctx) => {
@@ -53,14 +53,15 @@ function bush(seed: number) {
 
 function rock(seed: number, r: number) {
   return (c: Ctx) => {
-    const R = rng(seed), cx = 16, cy = 16;
-    const blobs: [number, number, number][] = [[cx, cy - 2, r], [cx - r * 0.7, cy + 1, r * 0.6], [cx + r * 0.8, cy + 1, r * 0.55]];
+    const R = rng(seed), cx = 48, cy = 52;
+    // велика брила / гора: кілька накладених валунів, найбільший посередині
+    const blobs: [number, number, number][] = [[cx, cy - r * 0.55, r], [cx - r * 0.85, cy - r * 0.15, r * 0.6], [cx + r * 0.9, cy - r * 0.1, r * 0.55], [cx + r * 0.2, cy - r * 1.25, r * 0.55]];
     for (const [x, y, rr] of blobs) disc(c, Math.round(x), Math.round(y), Math.round(rr), '#2b2a33');
-    for (const [x, y, rr] of blobs) disc(c, Math.round(x - 1), Math.round(y - 1), Math.round(rr - 1), '#555563');
-    for (const [x, y, rr] of blobs) disc(c, Math.round(x - 2), Math.round(y - 3), Math.max(1, Math.round(rr - 3.5)), '#7d7d8c');
-    for (let i = 0; i < 14; i++) { c.fillStyle = R() < 0.5 ? '#9a9aa8' : '#3c3b46'; c.fillRect(cx - r + ((R() * r * 2) | 0), cy - r + ((R() * r * 1.6) | 0), 1, 1); }
+    for (const [x, y, rr] of blobs) disc(c, Math.round(x - 1), Math.round(y - 1), Math.round(rr - 2), '#555563');
+    for (const [x, y, rr] of blobs) disc(c, Math.round(x - 3), Math.round(y - 5), Math.max(1, Math.round(rr - 7)), '#7d7d8c');
+    for (let i = 0; i < r * 3; i++) { c.fillStyle = R() < 0.5 ? '#9a9aa8' : '#3c3b46'; c.fillRect(cx - r + ((R() * r * 2) | 0), cy - r * 1.6 + ((R() * r * 1.6) | 0), 2, 1); }
     c.fillStyle = '#4b6a3e';
-    for (let i = 0; i < 5; i++) c.fillRect(cx - r + ((R() * r * 2) | 0), cy + 2, 2, 1); // мох біля основи
+    for (let i = 0; i < 10; i++) c.fillRect(cx - r + ((R() * r * 2) | 0), cy - 2, 3, 2); // мох біля основи
   };
 }
 
@@ -69,8 +70,8 @@ export function registerProps(): void {
   for (let i = 0; i < PINE_VARIANTS; i++) defineSprite({ id: `pine${i}`, w: 40, h: 72, ax: 20, ay: 70, scale: PROP_SCALE, paint: pine((i + 1) * 31) });
   for (let i = 0; i < BUSH_VARIANTS; i++) defineSprite({ id: `bush${i}`, w: 24, h: 14, ax: 12, ay: 13, scale: PROP_SCALE, paint: bush((i + 1) * 13) });
   // Каміння: брили й «розсип» (розбитий вузол, що відростає)
-  for (let i = 0; i < ROCK_VARIANTS; i++) defineSprite({ id: `rock${i}`, w: 32, h: 24, ax: 16, ay: 20, scale: 0.5, paint: rock(i * 19 + 5, 8 + i) });
-  defineSprite({ id: 'rubble', w: 32, h: 24, ax: 16, ay: 20, scale: 0.5, paint: rock(99, 3) });
+  for (let i = 0; i < ROCK_VARIANTS; i++) defineSprite({ id: `rock${i}`, w: 96, h: 64, ax: 48, ay: 54, scale: 0.5, paint: rock(i * 19 + 5, i === 3 ? 24 : 15 + i * 2) });
+  defineSprite({ id: 'rubble', w: 96, h: 64, ax: 48, ay: 54, scale: 0.5, paint: rock(99, 6) });
   // Пеньок і саджанець (зрубане дерево)
   defineSprite({ id: 'stump', w: 16, h: 14, ax: 8, ay: 12, scale: PROP_SCALE, paint: (c) => {
     c.fillStyle = '#241a20'; c.fillRect(4, 6, 8, 6); c.fillStyle = '#5a4030'; c.fillRect(5, 6, 6, 5); c.fillStyle = '#c9a070'; c.fillRect(5, 4, 6, 3); c.fillStyle = '#8a6a48'; c.fillRect(7, 5, 2, 1);
