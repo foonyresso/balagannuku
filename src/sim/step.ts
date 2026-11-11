@@ -5,7 +5,7 @@ import {
 } from '../shared';
 import {
   ATTACHED_WORK_MULT, CARRIER_CAP, CARRY_CAP, PROCESS_TICKS, HOUSE_SPAWN_INTERVAL, MILL_BUFFER, MILL_TICKS, WOOD_RESERVE, NPC_SPEED, POP_BASE, POP_PER_HOUSE,
-  ROAD_CHECK_INTERVAL, TRAIL_DECAY_BY_STAGE, STONE_AMOUNT, STORAGE_CAP, TREE_AMOUNT, TREE_REGROW_INTERVAL, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
+  ROAD_CHECK_INTERVAL, TRAIL_DECAY_BY_STAGE, STONE_AMOUNT, STONE_REGROW_INTERVAL, STORAGE_CAP, TREE_AMOUNT, TREE_CHOP_TICKS, TREE_GROWTH, TREE_GROW_STEP, TREE_STAGE_TICKS, WAIT_TICKS, WORK_RADIUS, WORK_TICKS,
 } from './balance';
 import { flowConsume, flowEdge, flowProduce, flowStarve, rollFlowWindow } from './flow';
 import { planRoute, sizeClassOf } from './route';
@@ -147,7 +147,7 @@ function findNode(w: SimWorld, i: number, rt: SectorRt, b: BuildingState, kind: 
         const x = ex + dx;
         if (x < 0 || x >= CELLS) continue;
         const c = y * CELLS + x;
-        if (rt.kind[c] !== kind) continue;
+        if (rt.kind[c] !== kind || (kind === NODE_TREE && rt.amount[c] < TREE_AMOUNT)) continue; // рубаємо лише доросле дерево
         const d = dx * dx + dy * dy;
         if (d < bad) { bad = d; bestAny = c; }
         if (d < bd && !claimedByOther(w, rt, c, i)) { bd = d; best = c; }
@@ -300,14 +300,16 @@ function stepNpc(w: SimWorld, i: number): void {
     case WALK_NODE: {
       if (!advance(w, i, rt)) break;
       const c = npc.aux[i], nodeKind = n.profession[i] === MINER ? NODE_STONE : NODE_TREE;
-      if (rt.kind[c] !== nodeKind) { npc.phase[i] = PLAN; break; }
-      npc.phase[i] = WORK_NODE; npc.timer[i] = Math.max(1, Math.round(workTicks(b, WORK_TICKS, richOf(w, b, n.profession[i])) / (mul(w, i, ST_GATHER) * hungerEff(w, i)))); n.task[i] = T('work');
+      if (rt.kind[c] !== nodeKind || (nodeKind === NODE_TREE && rt.amount[c] < TREE_AMOUNT)) { npc.phase[i] = PLAN; break; }
+      npc.phase[i] = WORK_NODE; npc.timer[i] = Math.max(1, Math.round(workTicks(b, n.profession[i] === MINER ? WORK_TICKS : TREE_CHOP_TICKS, richOf(w, b, n.profession[i])) / (mul(w, i, ST_GATHER) * hungerEff(w, i)))); n.task[i] = T('work');
       break;
     }
     case WORK_NODE: {
       if (--npc.timer[i] > 0) break;
       const c = npc.aux[i], isStone = n.profession[i] === MINER, isGame = n.profession[i] === HUNTER; // мисливець добуває дичину (їжу) в лісі
-      // Ресурс безкінечний: вузол лише «зрубується» візуально й відновлюється (regrow). По одній колоді за візит.
+      // Ресурс безкінечний: вузол лише «зрубується» (пеньок) й відростає стадіями (growTrees). По одній колоді за візит.
+      if (rt.amount[c] === 0) { npc.phase[i] = PLAN; break; } // хтось уже зрубав
+      if (!isStone && !isGame) w.events.push({ e: 'tree_felled', sector: rt.id, cell: c, fx: n.x[i], fy: n.y[i] });
       rt.amount[c] = 0; rt.forest[c] = 0;
       n.carryKind[i] = isStone ? STONE : isGame ? FOOD : WOOD; n.carryAmount[i]++; npc.stage[i] = 0;
       flowEdge(w, 0, b.id, RESOURCE_KINDS[n.carryKind[i]], 1);
@@ -473,14 +475,23 @@ export function decayTrails(w: SimWorld, steps = 1): void {
   }
 }
 
-function regrow(w: SimWorld): void {
+/** Ріст дерев: кожне зрубане/молоде дерево раз на TREE_STAGE_TICKS/mult тіків (у власній фазі) піднімається на стадію. Каміння відновлюється як було. */
+export function growTrees(w: SimWorld): void {
+  const interval = Math.max(TREE_GROW_STEP, Math.round(TREE_STAGE_TICKS / Math.max(0.01, TREE_GROWTH.mult))), tick = w.state.tick;
   for (const rt of w.sectors.values()) {
     for (let c = 0; c < rt.kind.length; c++) {
-      if (rt.kind[c] && rt.amount[c] === 0) {
-        rt.amount[c] = rt.kind[c] === NODE_TREE ? TREE_AMOUNT : STONE_AMOUNT;
-        if (rt.kind[c] === NODE_TREE) rt.forest[c] = 1;
-      }
+      if (rt.kind[c] !== NODE_TREE || rt.amount[c] >= TREE_AMOUNT) continue;
+      const off = Math.floor(hash2(c, rt.id, 77) * interval);
+      if ((tick + off) % interval >= TREE_GROW_STEP) continue; // у цьому вікні стадія вже/ще не настала
+      rt.amount[c]++;
+      if (rt.amount[c] >= 2) rt.forest[c] = 1; // молоде дерево вже заважає йти
     }
+  }
+}
+
+function regrowStone(w: SimWorld): void {
+  for (const rt of w.sectors.values()) {
+    for (let c = 0; c < rt.kind.length; c++) if (rt.kind[c] === NODE_STONE && rt.amount[c] === 0) rt.amount[c] = STONE_AMOUNT;
   }
 }
 
@@ -525,7 +536,8 @@ export function stepWorld(w: SimWorld): void {
   if (s.tick % HUNGER_INTERVAL === 0) for (let i = 0; i < cap; i++) if (n.alive[i] && n.fullness[i] > 0) n.fullness[i]--;
   if (s.tick % TRAIL_DECAY_INTERVAL === 0) decayTrails(w);
   if (s.tick % ROAD_CHECK_INTERVAL === 0) updateRoadAttached(w);
-  if (s.tick % TREE_REGROW_INTERVAL === 0) regrow(w);
+  if (s.tick % TREE_GROW_STEP === 0) growTrees(w);
+  if (s.tick % STONE_REGROW_INTERVAL === 0) regrowStone(w);
   if (s.tick % 10 === 0) { syncPlayerResources(w); houses(w); autoStaffIdle(w); }
   rollFlowWindow(w);
   if (w.stageChanges.length) {

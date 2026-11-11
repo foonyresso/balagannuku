@@ -11,9 +11,18 @@ export const WAIT_TICKS = 15; // очікування при нестачі
 /** Радіус пошуку вузла від будівлі (клітинок). За замовчуванням — увесь сектор: відстань не заважає роботі. */
 export const WORK_RADIUS = 64; // у клітинках навігації
 export const ATTACHED_WORK_MULT = 0.8; // будівля на дорозі працює швидше
+/**
+ * Стадії дерева (rt.amount клітинки): 0 пеньок, 1 саджанець, 2 молоде, 3 доросле (TREE_AMOUNT) — лише його можна рубати.
+ * Пеньок відростає стадіями; ресурс не вичерпується, але кількість дорослих дерев обмежена швидкістю росту.
+ */
 export const TREE_AMOUNT = 3;
+export const TREE_STAGE_TICKS = 150; // тіків на одну стадію при множнику росту 1
+export const TREE_GROW_STEP = 10; // раз на стільки тіків перевіряємо ріст
+/** Глобальний множник швидкості росту дерев (майбутнє дерево покращень / більше лісопилок). Змінний. */
+export const TREE_GROWTH = { mult: 1 };
+export const TREE_CHOP_TICKS = 24; // рубка одного дерева лісорубом (потім дерево падає)
 export const STONE_AMOUNT = 8;
-export const TREE_REGROW_INTERVAL = 100; // зрубане/розбите відновлюється (лише візуально, ресурс безкінечний)
+export const STONE_REGROW_INTERVAL = 100; // розбите каміння відновлюється (лише візуально, ресурс безкінечний)
 export const MILL_BUFFER = 15; // буфер колод лісопильні
 export const ROAD_CHECK_INTERVAL = 50;
 export const HOUSE_SPAWN_INTERVAL = 200;

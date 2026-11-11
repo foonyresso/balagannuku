@@ -41,5 +41,6 @@ export type GameEvent =
   | { e: 'sector_claimed'; sector: number; player: PlayerId }
   | { e: 'building_placed'; building: number }
   | { e: 'building_removed'; building: number }
+  | { e: 'tree_felled'; sector: number; cell: number; fx: number; fy: number } // fx,fy — тайл лісоруба: дерево падає від нього
   | { e: 'trail_stage_changed'; sector: number; cells: number[]; stage: number }
   | { e: 'player_joined' | 'player_left'; player: PlayerId };

@@ -149,7 +149,7 @@ export function describeSel(w: SimWorld, player: string, sector: number, sel: Se
     return {
       title: tree ? 'Дерево' : 'Камінь', kind: 'Ресурс', pos,
       rows: [
-        ['Стан', grown ? (tree ? 'росте' : 'ціла брила') : (tree ? 'зрубане, відростає' : 'розбите, відновлюється')],
+        ['Стан', grown ? (tree ? 'доросле' : 'ціла брила') : (tree ? 'пеньок, відростає' : 'розбите, відновлюється')],
         ['Запас', 'безкінечний'],
         ['Добуває', rt.claimBy[i] ? nameOf(w, rt.claimBy[i] - 1) : 'ніхто'],
       ],

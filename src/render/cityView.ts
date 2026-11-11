@@ -5,7 +5,7 @@ import { genBorderNode, mixNodeSeed } from '../sim/nodegen';
 import {
   applyCommand, checkPlace, getSectorRt, idleNpcs, slotsOf, nodeTile, staffBuilding, stepWorld, NODE_TREE, type SimWorld,
 } from '../sim';
-import { FOOTPRINT, JOB_OF, MAX_WORKERS, NPC_TILES, STONE_TILES } from '../sim/balance';
+import { FOOTPRINT, JOB_OF, MAX_WORKERS, NPC_TILES, STONE_TILES, TREE_AMOUNT } from '../sim/balance';
 import { NPC_STAT_COUNT, PROFESSIONS, RESOURCE_KINDS, TASKS, statIndex } from '../shared';
 import {
   Atmosphere, OAK_VARIANTS, PALETTE, PINE_VARIANTS, Particles, ROCK_VARIANTS, actFrames, actRate, buildingArt, classOf, cycleFrame, frameId, hitFrame, initStyle, nextTime,
@@ -35,6 +35,10 @@ interface Obj { sprites: Sprite[]; pick: number[] | null; tile: { x: number; y: 
 /** Візуал жителя: спрайт, ноша, лічильники анімації. */
 interface NpcVis { s: Sprite; carry: Sprite; lx: number; ly: number; dist: number; dir: number; frame: number; row: number }
 const WORK_TASK = TASKS.indexOf('work');
+const TREE_YOUNG_SCALE = 0.6;
+/** Анімація падіння дерева: хитання, падіння, затухання (секунди). */
+const FELL_SHAKE = 0.3, FELL_FALL = 0.75, FELL_FADE = 0.7;
+interface Falling { s: Sprite; t: number; dir: number; px: number; py: number; ux: number; uy: number; reach: number; hit: boolean; row: number }
 const SIZE_STAT = statIndex('size');
 const RES_BUNDLE: Record<string, string> = { wood: 'wood', stone: 'stone', planks: 'planks', food: 'food' };
 type Tile = { x: number; y: number };
@@ -443,23 +447,25 @@ export class CityView {
   }
   private nodeObj0(rt: ReturnType<typeof getSectorRt>, seed: number, cx: number, cy: number, kind: number, border: boolean): { row: number; obj: Obj } | null {
     const i = cy * SECTOR_CELLS + cx;
-    const nt = nodeTile(seed, this.sector, cx, cy), grown = border || rt.amount[i] > 0;
+    const nt = nodeTile(seed, this.sector, cx, cy), stage = border ? TREE_AMOUNT : rt.amount[i], grown = stage > 0;
     const px = (nt.x + 0.5) * TILE, py = (nt.y + 0.5) * TILE, tile = { x: nt.x, y: nt.y };
     const base = planeToIso(px, py, 0);
     const row = Math.min(NB - 1, Math.max(0, Math.floor(nt.y / BUCKET)));
-    const mk = (id: string, flip: boolean): Sprite => {
+    const mk = (id: string, flip: boolean, k = 1): Sprite => {
       const a = spr(id), s = new Sprite(a.tex);
-      s.anchor.set(a.ax / a.w, a.ay / a.h); s.scale.set(flip ? -a.scale : a.scale, a.scale);
+      s.anchor.set(a.ax / a.w, a.ay / a.h); s.scale.set((flip ? -a.scale : a.scale) * k, a.scale * k);
       s.position.set(base.x, base.y); s.zIndex = py;
       return s;
     };
     if (kind === NODE_TREE) {
       const flip = variant(cx, cy, 2, 5) === 1;
-      const id = grown ? treeSpriteId(cx, cy, OAK_VARIANTS, PINE_VARIANTS) : (variant(cx, cy, 2, 9) ? 'stump' : 'sapling');
-      const a = spr(id), rw = (a.w * a.scale) * 0.32, hh = (a.ay * a.scale) * 0.92;
+      // стадії росту: 0 пеньок, 1 саджанець, 2 молоде (менший розмір), 3 доросле
+      const id = stage >= 2 ? treeSpriteId(cx, cy, OAK_VARIANTS, PINE_VARIANTS) : stage === 1 ? 'sapling' : 'stump', k = stage === 2 ? TREE_YOUNG_SCALE : 1;
+      const a = spr(id), rw = (a.w * a.scale * k) * 0.32, hh = (a.ay * a.scale * k) * 0.92;
+      const ripe = stage >= TREE_AMOUNT;
       return { row, obj: {
-        tile, sel: grown ? { t: 'node', cx, cy } : null, sprites: [mk(id, flip)],
-        pick: grown ? [base.x - rw, base.y - hh, base.x + rw, base.y - hh, base.x + rw * 0.4, base.y + 2, base.x - rw * 0.4, base.y + 2] : null,
+        tile, sel: ripe ? { t: 'node', cx, cy } : null, sprites: [mk(id, flip, k)],
+        pick: ripe ? [base.x - rw, base.y - hh, base.x + rw, base.y - hh, base.x + rw * 0.4, base.y + 2, base.x - rw * 0.4, base.y + 2] : null,
       } };
     }
     const id = grown ? `rock${variant(cx, cy, ROCK_VARIANTS, 4)}` : 'rubble', a = spr(id), rw = (STONE_TILES * TILE) / 2;
@@ -508,7 +514,7 @@ export class CityView {
     const dirty = new Set<number>();
     for (let cy = 0; cy < SECTOR_CELLS; cy++) {
       let h = 0;
-      for (let cx = 0, i = cy * SECTOR_CELLS; cx < SECTOR_CELLS; cx++, i++) if (rt.kind[i]) h = (Math.imul(h, 31) + (rt.amount[i] > 0 ? i + 1 : -(i + 1))) | 0;
+      for (let cx = 0, i = cy * SECTOR_CELLS; cx < SECTOR_CELLS; cx++, i++) if (rt.kind[i]) h = (Math.imul(h, 31) + (rt.amount[i] + 1) * (i + 1)) | 0;
       if (h === this.rowSig[cy]) continue;
       this.rowSig[cy] = h;
       for (const sp of this.nodeSpr[cy] ?? []) sp.destroy();
@@ -554,6 +560,7 @@ export class CityView {
     this.drawNpcs(dt);
     this.atmo.update(dt);
     this.parts.update(dt);
+    this.updateFalling(dt);
     this.emitAmbient(dt);
     this.drawShine();
     this.followCam();
@@ -569,6 +576,7 @@ export class CityView {
     }
     if (this.hoverSel && !(this.sel && JSON.stringify(this.sel) === JSON.stringify(this.hoverSel))) this.frame_(this.hoverSel, 0xffffff, 0.5);
     if (this.sel) this.frame_(this.sel, 0xffd54f, 1);
+    if (this.forceRebuild) { this.forceRebuild = false; this.rebuild(); }
     if (++this.frame % 20 === 0) {
       if (this.signature() !== this.lastSig) this.rebuild();
       this.refreshHud();
@@ -624,6 +632,53 @@ export class CityView {
       } else v.carry.visible = false;
     }
     for (const [i, v] of this.npcVis) if (!seen.has(i)) { v.s.destroy(); v.carry.destroy(); this.npcVis.delete(i); }
+  }
+
+  private falling: Falling[] = [];
+  private forceRebuild = false;
+
+  /** Дерево зрубано: на його місці одразу пеньок, а зрубане падає від лісоруба (хитання, падіння, удар об землю з листям і пилом). */
+  private fellTree(cell: number, fx: number, fy: number): void {
+    const cx = cell % SECTOR_CELLS, cy = (cell / SECTOR_CELLS) | 0;
+    this.forceRebuild = true;
+    if (this.cam.zoom < 0.25) return;
+    const nt = nodeTile(this.w.state.world.seed, this.sector, cx, cy);
+    const id = treeSpriteId(cx, cy, OAK_VARIANTS, PINE_VARIANTS), a = spr(id), s = new Sprite(a.tex);
+    const px = (nt.x + 0.5) * TILE, py = (nt.y + 0.5) * TILE, base = planeToIso(px, py, 0);
+    const flip = variant(cx, cy, 2, 5) === 1;
+    s.anchor.set(a.ax / a.w, a.ay / a.h); s.scale.set(flip ? -a.scale : a.scale, a.scale); s.position.set(base.x, base.y); s.zIndex = py + 0.02;
+    const vx = nt.x + 0.5 - fx, vy = nt.y + 0.5 - fy, len = Math.hypot(vx, vy) || 1;
+    const sx = planeToIso(nt.x * TILE, nt.y * TILE, 0).x - planeToIso(fx * TILE, fy * TILE, 0).x;
+    const row = Math.min(NB - 1, Math.max(0, Math.floor(nt.y / BUCKET)));
+    this.rowCont[row].addChild(s);
+    this.falling.push({ s, t: 0, dir: sx >= 0 ? 1 : -1, px, py, ux: vx / len, uy: vy / len, reach: a.ay * a.scale * 0.9, hit: false, row });
+  }
+
+  private updateFalling(dt: number): void {
+    if (this.speed === 0) return;
+    const P = this.parts, r = Math.random;
+    for (let k = this.falling.length - 1; k >= 0; k--) {
+      const f = this.falling[k];
+      f.t += dt;
+      const t = f.t;
+      if (t < FELL_SHAKE) { // хитання перед падінням + листя з крони
+        f.s.rotation = Math.sin(t * 60) * 0.035 * (t / FELL_SHAKE);
+        if (r() < dt * 30) P.emit({ x: f.px, y: f.py, z: 14 + r() * 6, vx: (r() - 0.5) * 8, vz: 2, g: 20, life: 0.8, col: r() < 0.5 ? 0x5d7a45 : 0x2c4638, size: 0.7 });
+      } else if (t < FELL_SHAKE + FELL_FALL) { // падіння: прискорення (t²), легке відскакування наприкінці
+        const u = (t - FELL_SHAKE) / FELL_FALL, ease = u * u;
+        f.s.rotation = f.dir * ease * (Math.PI / 2 - 0.08);
+        if (r() < dt * 25) P.emit({ x: f.px + f.ux * f.reach * ease * 0.5, y: f.py + f.uy * f.reach * ease * 0.5, z: 8 * (1 - ease) + 3, vx: f.ux * 4, vy: f.uy * 4, vz: 1, g: 25, life: 0.7, col: 0x5d7a45, size: 0.7 });
+      } else {
+        const u = (t - FELL_SHAKE - FELL_FALL) / FELL_FADE;
+        if (!f.hit) { // удар об землю: пил і листя, дерево трохи підскакує
+          f.hit = true;
+          for (let j = 0; j < 14; j++) P.emit({ x: f.px + f.ux * f.reach * 0.9, y: f.py + f.uy * f.reach * 0.9, z: 1, vx: (r() - 0.5) * 22, vy: (r() - 0.5) * 12, vz: 6 + r() * 8, g: 40, life: 0.8, col: j % 2 ? 0xc9b48a : 0x5d7a45, size: 0.9, kind: j % 2 ? 'dust' : 'chip', a: 0.7 });
+        }
+        f.s.rotation = f.dir * (Math.PI / 2 - 0.08 - Math.max(0, 0.12 * Math.sin(Math.min(1, u * 3) * Math.PI)));
+        f.s.alpha = Math.max(0, 1 - Math.max(0, u - 0.3) / 0.7);
+        if (u >= 1) { f.s.destroy(); this.falling.splice(k, 1); }
+      }
+    }
   }
 
   /** Удар інструмента: тріски, іскри, пил, стріла. */
@@ -691,7 +746,10 @@ export class CityView {
     this.pacer.advance(this.app.ticker.deltaMS, this.speed, () => {
       stepWorld(this.w);
       this.clock.tick(performance.now());
-      if (this.w.events.some((e) => e.e === 'trail_stage_changed')) this.groundDirty = true;
+      for (const e of this.w.events) {
+        if (e.e === 'trail_stage_changed') this.groundDirty = true;
+        else if (e.e === 'tree_felled' && e.sector === this.sector) this.fellTree(e.cell, e.fx, e.fy);
+      }
     });
   }
 
@@ -729,18 +787,18 @@ export class CityView {
   private signature(): string {
     const rt = getSectorRt(this.w, this.sector);
     let h = 0, grown = 0;
-    for (let i = 0; i < rt.kind.length; i++) if (rt.kind[i] && rt.amount[i] > 0) { grown++; h = (h * 31 + i) | 0; }
+    for (let i = 0; i < rt.kind.length; i++) if (rt.kind[i] && rt.amount[i] > 0) { grown += rt.amount[i]; h = (h * 31 + i * (rt.amount[i] + 1)) | 0; }
     return `${grown}:${h}:${rt.buildings.length}`;
   }
 
   /** Для автотестів: стан вибору й екранні координати об'єктів. */
-  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; layers: { ground: number; base: number; ghost: number; hover: number }; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; time: string; lights: number; particles: number; npcSprites: number; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
+  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; layers: { ground: number; base: number; ghost: number; hover: number }; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; time: string; lights: number; particles: number; falling: number; npcSprites: number; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
     const scr = (x: number, y: number, z: number) => { const i = planeToIso(x * TILE, y * TILE, z); return { sx: i.x * this.cam.zoom + this.cam.x, sy: i.y * this.cam.zoom + this.cam.y }; };
     const n = this.w.state.npcs, npcs: { id: number; sx: number; sy: number }[] = [];
     for (let i = 0; i < n.capacity; i++) if (n.alive[i] && n.sector[i] === this.sector) npcs.push({ id: i, ...scr(this.npcXY(i).x, this.npcXY(i).y, 3) });
     const buildings = this.w.state.buildings.map((b) => ({ id: b.id, kind: b.kind, ...scr(b.cell.x + b.size.w / 2, b.cell.y + b.size.h / 2, 6) }));
     return { build: this.selected, sel: this.sel, following: this.following, ghost: this.ghost.g.visible && !!this.ghost.g.parent,
-      layers: { ground: this.root.getChildIndex(this.ground), base: this.ghost.base.parent ? this.root.getChildIndex(this.ghost.base) : -1, ghost: this.ghost.g.parent ? this.root.getChildIndex(this.ghost.g) : -1, hover: this.root.getChildIndex(this.hoverG) }, speed: this.speed, tick: this.w.state.tick, zoom: this.cam.zoom, npcs, time: this.atmo.key, lights: this.atmo.lightCount, particles: this.parts.count, npcSprites: this.npcVis.size, buildings };
+      layers: { ground: this.root.getChildIndex(this.ground), base: this.ghost.base.parent ? this.root.getChildIndex(this.ghost.base) : -1, ghost: this.ghost.g.parent ? this.root.getChildIndex(this.ghost.g) : -1, hover: this.root.getChildIndex(this.hoverG) }, speed: this.speed, tick: this.w.state.tick, zoom: this.cam.zoom, npcs, time: this.atmo.key, lights: this.atmo.lightCount, particles: this.parts.count, falling: this.falling.length, npcSprites: this.npcVis.size, buildings };
   }
 
   destroy(): void {
@@ -755,6 +813,7 @@ export class CityView {
     this.app.renderer.off('resize', this.onResize);
     this.app.stage.removeChild(this.root, this.atmo.multiply, this.atmo.lights, this.atmo.top);
     this.atmo.multiply.destroy(); this.atmo.lights.destroy({ children: true }); this.atmo.top.destroy({ children: true });
+    this.falling = [];
     this.root.destroy({ children: true });
     this.boxEl.remove();
     this.hud.destroy();

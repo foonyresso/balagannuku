@@ -685,7 +685,7 @@ describe('їжа і голод', () => {
   });
 
   it('голодний (нижче порога) працює повільніше за ситого', () => {
-    expect(woodAfter(29, 300).wood).toBeLessThan(woodAfter(100, 300).wood);
+    expect(woodAfter(29, 600).wood).toBeLessThan(woodAfter(100, 600).wood);
   });
 
   it('ферма виробляє їжу й несе до складу', () => {
