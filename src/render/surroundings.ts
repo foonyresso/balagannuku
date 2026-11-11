@@ -1,10 +1,10 @@
-import { Container, Graphics, Sprite, type Renderer } from 'pixi.js';
+import { Container, Sprite, type Renderer } from 'pixi.js';
 import type { SectorState } from '../shared';
 import { SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL as TPC, WORLD_RING } from '../shared';
 import { nodeTile } from '../sim';
 import { genNode, mixNodeSeed } from '../sim/nodegen';
-import { STONE_TILES, TREE_TILES } from '../sim/balance';
 import { planeToIso, screenToIso, type Camera } from './projection';
+import { OAK_VARIANTS, PINE_VARIANTS, ROCK_VARIANTS, makeGround, spr, treeSpriteId, variant } from './style';
 
 /** Розмір тайла в одиницях площини (узгоджено з CityView). */
 const TILE = 4;
@@ -26,10 +26,8 @@ export class Surroundings {
   constructor(
     private renderer: Renderer, private seed: number, private home: SectorState,
   ) {
-    // Одна суцільна земля на весь світ: між секторами немає ліній.
-    const gnd = new Graphics(), bb = Surroundings.bounds();
-    const pts = [planeToIso(bb.minX, bb.minY), planeToIso(bb.maxX, bb.minY), planeToIso(bb.maxX, bb.maxY), planeToIso(bb.minX, bb.maxY)];
-    if (WORLD_RING > 0) { gnd.poly(pts.flatMap((v) => [v.x, v.y])).fill(0x2a3a22); this.back.addChild(gnd); }
+    // Одна суцільна земля на весь світ (тайлова піксельна трава): між секторами немає ліній.
+    this.back.addChild(makeGround(Surroundings.bounds()));
     for (let dy = -WORLD_RING; dy <= WORLD_RING; dy++) {
       for (let dx = -WORLD_RING; dx <= WORLD_RING; dx++) if (dx || dy) this.pending.push({ dx, dy });
     }
@@ -69,7 +67,7 @@ export class Surroundings {
     // Сусіди = той самий світ: genNode від СВІТОВИХ координат клітинки (з домашнього сектора), без швів на межах.
     const nodeSeed = mixNodeSeed(this.seed, this.home.id);
     const wood = this.home.richness.wood ?? 0.3, stone = this.home.richness.stone ?? 0.3;
-    const g = new Graphics();
+    const g = new Container();
     // Об'єкти від дальніх рядів до ближніх, щоб крони перекривались правильно.
     const objs: { y: number; draw: () => void }[] = [];
     for (let cy = 0; cy < SECTOR_CELLS; cy++) {
@@ -81,16 +79,12 @@ export class Surroundings {
         const jx = nt.x % TPC, jy = nt.y % TPC; // дрібне зміщення всередині клітинки
         const px = (wx * TPC + jx + 0.5) * TILE, py = (wy * TPC + jy + 0.5) * TILE;
         const base = planeToIso(px, py, 0);
-        if (kind === 1) {
-          const rad = (TREE_TILES * TILE) / 2, top = planeToIso(px, py, 22), mid = planeToIso(px, py, 9);
-          objs.push({ y: py, draw: () => {
-            g.rect(mid.x - 1.5, mid.y, 3, base.y - mid.y).fill(0x5d4037);
-            g.ellipse(top.x, top.y + 3, rad, rad * 1.25).fill(0x1b5e20);
-          } });
-        } else {
-          const rw = (STONE_TILES * TILE) / 2;
-          objs.push({ y: py, draw: () => { g.ellipse(base.x, base.y - 3, rw, rw * 0.7).fill(0x78787f); } });
-        }
+        const id = kind === 1 ? treeSpriteId(wx, wy, OAK_VARIANTS, PINE_VARIANTS) : `rock${variant(wx, wy, ROCK_VARIANTS, 4)}`;
+        objs.push({ y: py, draw: () => {
+          const a = spr(id), s = new Sprite(a.tex);
+          s.anchor.set(a.ax / a.w, a.ay / a.h); s.scale.set(a.scale); s.position.set(base.x, base.y);
+          g.addChild(s);
+        } });
       }
     }
     objs.sort((a, b) => a.y - b.y);
@@ -99,7 +93,7 @@ export class Surroundings {
     const b = g.getLocalBounds();
     const sprite = new Sprite(this.renderer.generateTexture({ target: g, resolution: BAKE_RESOLUTION }));
     sprite.position.set(b.x, b.y);
-    g.destroy();
+    g.destroy({ children: true });
     (dy > 0 ? this.front : this.back).addChild(sprite);
     this.tiles.set(`${dx},${dy}`, { s: sprite });
   }
