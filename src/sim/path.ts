@@ -1,5 +1,5 @@
-import { ROAD_SPEED_MULT, SECTOR_CELLS, TrailStage } from '../shared';
-import { ROAD_PULL } from './balance';
+import { SECTOR_CELLS } from '../shared';
+import { ROAD_PATH_COST, ROAD_PULL } from './balance';
 
 const S = SECTOR_CELLS, N = S * S; // A* — по грубій сітці клітинок навігації, не по тайлах
 const g = new Float32Array(N), from = new Int32Array(N); // N = SECTOR_CELLS² (до ~4 млн), тож Int32
@@ -7,10 +7,10 @@ const seen = new Uint32Array(N), closed = new Uint32Array(N);
 const HCAP = N * 9;
 const hf = new Float32Array(HCAP), hi = new Int32Array(HCAP);
 let hn = 0, stamp = 0;
-/** Вартість входу в клітинку за стадією стежки (залежить від ROAD_PULL). */
+/** Вартість входу в клітинку за стадією стежки (ROAD_PATH_COST, сила — ROAD_PULL). */
 const STAGE_COST = new Float32Array(4);
 export function setRoadPull(pull: number): void {
-  for (let st = 0; st < 4; st++) STAGE_COST[st] = 1 / (1 + pull * (ROAD_SPEED_MULT[st as TrailStage] - 1));
+  for (let st = 0; st < 4; st++) STAGE_COST[st] = 1 - pull * (1 - ROAD_PATH_COST[st]);
 }
 setRoadPull(ROAD_PULL);
 const MIN_COST = () => Math.min(...STAGE_COST);
