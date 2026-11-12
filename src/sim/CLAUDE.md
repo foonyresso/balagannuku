@@ -25,6 +25,7 @@
 - `systems/growth.ts`: відновлення зрубаних дерев і розбитого каміння.
 - `systems/population.ts`: будинки поселяють жителів, `countPop`.
 - `systems/resources.ts`: підсумок запасів гравця.
+- `systems/camp.ts`: вогнище перед ратушею (`campfireOf`), слоти для вільних (`campTick`), заборона забудови на площі. Тест `systems/camp.test.ts`.
 
 Баланс (`balance/`, імпорт як раніше: `from './balance'`):
 - `balance/buildings.ts`: таблиця `BUILDINGS`, один запис на споруду (розмір, ціна, слоти, професія, місткість). `COSTS`, `FOOTPRINT`, `MAX_WORKERS`, `JOB_OF`, `STORAGE_CAP`, `SOLID_RECT`, `DEFAULT_WORKERS` виводяться з неї.

@@ -3,6 +3,7 @@ import { SECTOR_CELLS } from '../../shared';
 import { getSectorRt } from '../../sim';
 import { ISO_Y, screenToPlane } from '../projection';
 import { buildingObjs, type Smoker } from './buildings';
+import { campfireObjs } from './campfire';
 import { nodeObj } from './nodes';
 import { BUCKET, NB, TILE, type Obj, type Scene } from './scene';
 
@@ -51,8 +52,9 @@ export class DepthLayers {
       for (const sp of this.bldSpr) sp.destroy();
       this.bldSpr = [];
       for (let r = 0; r < NB; r++) if (this.bldRows[r].length) { dirty.add(r); this.bldRows[r] = []; }
-      const built = buildingObjs(scene, rt);
-      this.smokers = built.smokers;
+      const built = buildingObjs(scene, rt), camp = campfireObjs(scene, rt);
+      built.objs.push(...camp.objs);
+      this.smokers = [...built.smokers, ...camp.smokers];
       for (const fs of built.flat) { this.fieldLayer.addChild(fs); this.bldSpr.push(fs); }
       for (const { row, obj } of built.objs) {
         this.bldRows[row].push(obj); dirty.add(row);

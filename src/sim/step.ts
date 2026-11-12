@@ -2,6 +2,7 @@ import { autoStaffIdle } from './assign';
 import { rollFlowWindow } from './flow';
 import { hungerTick } from './jobs/eat';
 import { stepNpc } from './jobs/npc';
+import { campTick } from './systems/camp';
 import { growthTick } from './systems/growth';
 import { housesTick } from './systems/population';
 import { syncPlayerResources } from './systems/resources';
@@ -29,6 +30,7 @@ export function stepWorld(w: SimWorld): void {
   trailsTick(w);
   growthTick(w);
   if (s.tick % 10 === 0) { syncPlayerResources(w); housesTick(w); autoStaffIdle(w); }
+  campTick(w);
   rollFlowWindow(w);
   emitTrailEvents(w);
 }

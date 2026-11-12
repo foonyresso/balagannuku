@@ -2,9 +2,10 @@ import { EAT_BELOW } from '../balance';
 import { getSectorRt, type SimWorld } from '../world';
 import { carryDrop, carryPick, planCarrier } from './carrier';
 import type { JobFn } from './common';
-import { CARRIER, FARMER, FISHER, PHASE, SAWYER, taskId } from './consts';
+import { CARRIER, FARMER, FISHER, PHASE, SAWYER } from './consts';
 import { eat, planEat } from './eat';
 import { farmWalk, farmWork, planFarmer } from './farm';
+import { stepIdle } from './idle';
 import { planGather, walkHome, walkNode, workHome, workNode } from './gather';
 import { walkDeposit } from './logistics';
 import { planSawyer, walkMill, walkTake, workMill } from './sawmill';
@@ -26,10 +27,10 @@ const plan: JobFn = (w, i, rt, b) => {
 };
 
 export function stepNpc(w: SimWorld, i: number): void {
-  const n = w.state.npcs, npc = w.npc;
+  const npc = w.npc;
   const wp = npc.workplace[i];
   const b = wp >= 0 ? w.byId.get(wp) : undefined;
-  if (!b) { npc.workplace[i] = -1; n.task[i] = taskId('idle'); npc.path[i] = null; return; }
+  if (!b) { npc.workplace[i] = -1; stepIdle(w, i); return; }
   const rt = getSectorRt(w, b.sector);
   switch (npc.phase[i]) {
     case PHASE.PLAN: plan(w, i, rt, b); break;

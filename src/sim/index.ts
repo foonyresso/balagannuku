@@ -6,4 +6,6 @@ export * from './npcs';
 export * as balance from './balance';
 export * from './assign';
 export * from './residents';
+export { campfireOf, campfireFor, hallOf, hitsCampPlaza } from './systems/camp';
+export { roamTarget } from './jobs/idle';
 export { waterAt, fillWater, nearestShore, homeLake, WATER, configureWater, resetWater } from './water';

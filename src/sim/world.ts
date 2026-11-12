@@ -1,5 +1,5 @@
 import type {
-  BuildingId, BuildingState, GameEvent, GameState, NpcStore, PackedNpcStore, PlayerState, SectorState,
+  BuildingId, BuildingState, Campfire, GameEvent, GameState, NpcStore, PackedNpcStore, PlayerState, SectorState,
   SerializedGameState, TrailLayer,
 } from '../shared';
 import { BORDER_CELLS, NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, isActiveCell, isActiveTile, stageFromTraffic } from '../shared';
@@ -53,6 +53,8 @@ export interface NpcRt {
   /** 1 = гравець сам зняв NPC з роботи: автопризначення його не чіпає. */
   manual: Uint8Array;
   tile: Int32Array; // тайл, у якому NPC був востаннє (для трафіку)
+  /** Слот біля вогнища (0..CAMP_MIN_SLOTS-1) вільного жителя; -1 = не біля вогнища (бродить або працює). Див. systems/camp.ts. */
+  camp: Int8Array;
 }
 
 export interface SimWorld {
@@ -66,6 +68,8 @@ export interface SimWorld {
   freeBuild: boolean;
   /** Остання причина простою будівлі (для підказок UI): no_node, no_storage, storage_full, no_wood, no_path, paused. Не серіалізується. */
   why: Map<BuildingId, string>;
+  /** Кеш позицій вогнищ за id ратуші (виводиться з ратуші, не серіалізується). */
+  fires: Map<BuildingId, Campfire>;
 }
 
 /** Стати за замовчуванням (норма) для capacity NPC. */
@@ -94,7 +98,7 @@ function createNpcRt(capacity: number): NpcRt {
   return {
     phase: new Uint8Array(capacity), timer: new Uint16Array(capacity),
     workplace: new Int32Array(capacity).fill(-1), aux: new Int32Array(capacity).fill(-1),
-    path: new Array(capacity).fill(null), pathPos: new Uint16Array(capacity), tile: new Int32Array(capacity).fill(-1), manual: new Uint8Array(capacity), stage: new Uint8Array(capacity), px: new Float32Array(capacity), py: new Float32Array(capacity),
+    path: new Array(capacity).fill(null), pathPos: new Uint16Array(capacity), tile: new Int32Array(capacity).fill(-1), manual: new Uint8Array(capacity), camp: new Int8Array(capacity).fill(-1), stage: new Uint8Array(capacity), px: new Float32Array(capacity), py: new Float32Array(capacity),
   };
 }
 
@@ -209,7 +213,7 @@ export function wrapState(state: Omit<GameState, 'npcs'> & { npcs?: NpcStore }, 
   if (!full.npcs) full.npcs = createNpcStore(capacity);
   const w: SimWorld = {
     state: full, sectors: new Map(), npc: createNpcRt(full.npcs.capacity), byId: new Map(),
-    events: [], stageChanges: [], freeBuild: false, why: new Map(),
+    events: [], stageChanges: [], freeBuild: false, why: new Map(), fires: new Map(),
   };
   rebuildIndex(w);
   w.npc.px.set(full.npcs.x); w.npc.py.set(full.npcs.y);
