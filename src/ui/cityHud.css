@@ -3,7 +3,7 @@
 #cityHud > * { pointer-events: auto; }
 #cityHud [hidden] { display: none !important; }
 #cityHud .k-card { font: inherit; }
-#cityTop { position: absolute; top: 0; left: 0; right: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 1em; font-variant-numeric: tabular-nums;
+#cityTop { position: absolute; top: 0; left: 0; right: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1em; font-variant-numeric: tabular-nums;
   padding: 0.35em 1em; border-radius: 0; border-width: 0 0 0.16em; }
 #cityRes { display: flex; flex-wrap: nowrap; gap: 0.9em; overflow: hidden; white-space: nowrap; }
 #cityRes .res { display: inline-flex; align-items: center; gap: 0.35em; }
@@ -11,7 +11,6 @@
 #citySpeed { display: flex; align-items: center; gap: 0.25em; }
 #citySpeed button { min-width: 2.6em; padding: 0.15em 0.4em; }
 #speedActual { display: inline-block; box-sizing: border-box; width: 11em; margin-left: 0.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--k-red); }
-#cityBack { white-space: nowrap; }
 #cityNotes { position: absolute; top: 3.4em; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.3em; pointer-events: none; max-width: 90vw; }
 #cityHint:not(:empty) { padding: 0.2em 0.9em; border-radius: 1em; background: rgba(27, 20, 38, 0.9); border: 0.08em solid var(--k-edge); color: var(--k-teal); text-align: center; }
 #cityMsg { color: var(--k-gold); text-shadow: 0 0 0.3em #000, 0 0.1em 0 #000; text-align: center; }
@@ -68,3 +67,32 @@
 #slotNum { display: inline-block; min-width: 3.5em; text-align: center; font-variant-numeric: tabular-nums; }
 #selBox { position: fixed; z-index: 5; pointer-events: none; border: 1px solid #ffd54f; background: rgba(255, 213, 79, 0.12); }
 #selBox[hidden] { display: none; }
+
+/* Жителі: список і деталі збоку */
+.kwin[data-win=npcs] .kwin-body { overflow: hidden; display: flex; }
+.kwin[data-win=npcs] [data-pane=main] { flex: 1; min-width: 0; }
+.npc-layout { display: flex; gap: 0.8em; height: 100%; }
+.npc-col { flex: 1; min-width: 0; overflow: auto; padding-right: 0.3em; }
+#npcDetail { flex: none; width: 17em; overflow: auto; cursor: default; }
+#npcDetail:hover { border-color: var(--k-edge); }
+#npcDetail h4 { margin: 0.7em 0 0.25em; color: var(--k-gold-dim); font-size: 1em; }
+#npcDetail p { margin: 0; }
+#npcDetail .who-hd { display: flex; gap: 0.6em; align-items: center; }
+#npcDetail h3 { margin: 0; font-size: 1.15em; }
+#npcDetail .stat { display: grid; grid-template-columns: 1fr auto; gap: 0 0.5em; margin-bottom: 0.3em; }
+#npcDetail .stat b.up { color: var(--k-green); } #npcDetail .stat b.down { color: var(--k-red); }
+.bar { grid-column: 1 / -1; display: block; height: 0.4em; border-radius: 0.3em; background: var(--k-bg); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--k-gold-dim); }
+.slots { display: flex; gap: 0.4em; margin-bottom: 0.3em; }
+.slots > i { width: 2.6em; height: 2.6em; border-radius: 0.35em; border: 0.1em dashed var(--k-edge); background: var(--k-bg); }
+#npcDetail .acts { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.8em; }
+
+/* Інвентар і налаштування */
+.inv-grid { display: grid; grid-template-columns: repeat(auto-fill, 3.4em); gap: 0.4em; margin-bottom: 0.8em; }
+.inv-grid > i { height: 3.4em; border-radius: 0.35em; border: 0.1em dashed var(--k-edge); background: var(--k-bg); }
+.set-row { display: flex; align-items: center; gap: 1em; cursor: default; }
+.set-row span { flex: 1; }
+.set-row input { width: 14em; accent-color: var(--k-gold); }
+.set-row b { min-width: 3em; text-align: right; color: var(--k-gold); }
+.key-row { display: flex; gap: 1em; align-items: center; cursor: default; }
+.key-row kbd { flex: none; min-width: 9em; padding: 0.1em 0.6em; border-radius: 0.3em; background: var(--k-bg); border: 0.1em solid var(--k-edge); color: var(--k-gold); text-align: center; font-family: inherit; }

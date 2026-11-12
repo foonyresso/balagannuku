@@ -13,6 +13,10 @@ export interface Section {
   /** Створює вміст: по одному контейнеру на вкладку (без вкладок — `main`). Повертає оновлення (лише коли вікно відкрите). */
   mount(panes: Record<string, HTMLElement>, ctx: SectionCtx): (st: HudState, tab: string) => void;
 }
+/** Кнопка нижньої панелі без вікна: просто виконує дію (наприклад, вихід на карту). */
+export interface ActionSection { id: string; icon: IconName; title: string; action(ctx: SectionCtx): void }
+export type DockItem = Section | ActionSection;
+const isAction = (s: DockItem): s is ActionSection => 'action' in s;
 
 interface Win { s: Section; el: HTMLElement; btn: HTMLElement; tab: string; update: (st: HudState, tab: string) => void }
 
@@ -23,7 +27,7 @@ export class WindowManager {
   private cur: string | null = null;
   private st: HudState | null = null;
 
-  constructor(host: HTMLElement, sections: Section[], ctx: Omit<SectionCtx, 'open'>) {
+  constructor(host: HTMLElement, sections: DockItem[], ctx: Omit<SectionCtx, 'open'>) {
     this.dock.id = 'cityDock';
     this.dock.className = 'k-frame';
     const full: SectionCtx = { ...ctx, open: (id, tab) => this.open(id, tab) };
@@ -31,8 +35,9 @@ export class WindowManager {
       const btn = document.createElement('button');
       btn.className = 'k-btn dock-btn'; btn.dataset.win = s.id; btn.title = s.title;
       btn.innerHTML = `${icon(s.icon)}<span>${s.title}</span>`;
-      btn.onclick = () => this.toggle(s.id);
       this.dock.append(btn);
+      if (isAction(s)) { btn.onclick = () => { this.close(); s.action(full); }; continue; }
+      btn.onclick = () => this.toggle(s.id);
       const el = document.createElement('section');
       el.className = 'kwin k-frame'; el.dataset.win = s.id; el.dataset.place = s.place; el.hidden = true;
       const tabs = s.tabs ?? [{ id: 'main', title: '' }];

@@ -248,7 +248,7 @@ const perf = (name, ok, extra = '') => (slowGl && !ok ? console.log('warn', name
   await p.click('button[data-speed="1"]');
 
   // Стабільність позицій кнопок при зміні динамічного тексту
-  const xs = () => p.evaluate(() => [...document.querySelectorAll('#citySpeed button, #cityBack, #cityDock button')].map((e) => Math.round(e.getBoundingClientRect().left * 10) / 10));
+  const xs = () => p.evaluate(() => [...document.querySelectorAll('#citySpeed button, #cityDock button')].map((e) => Math.round(e.getBoundingClientRect().left * 10) / 10));
   const xs0 = await xs();
   for (const t of ['', 'фактично ≈1.6×', 'фактично ≈100×', 'керує хост']) {
     await p.evaluate((x) => { document.querySelector('#speedActual').textContent = x; }, t);
@@ -260,6 +260,26 @@ const perf = (name, ok, extra = '') => (slowGl && !ok ? console.log('warn', name
   await p.evaluate(() => { document.querySelectorAll('#peopleFilter button').forEach((b, i) => { b.textContent = ['Усі (1)', 'Вільні (1234)', 'Зайняті (0)'][i]; }); });
   check('фільтри Усі/Вільні/Зайняті не зсуваються при зміні лічильників', JSON.stringify(await p.evaluate(() => [...document.querySelectorAll('#peopleFilter button')].map((e) => Math.round(e.getBoundingClientRect().left)))) === JSON.stringify(f0));
   await p.click('button.dock-btn[data-win=npcs]');
+
+  // Деталі жителя збоку, інвентар, налаштування, карта
+  await p.click('button.dock-btn[data-win=npcs]'); await p.waitForTimeout(300);
+  check('без вибору збоку підказка', /Обери жителя/.test(await p.textContent('#npcDetail')));
+  await (await p.$('#peopleList .row')).dispatchEvent('pointerdown', { bubbles: true }); await p.waitForTimeout(300);
+  const dt = await p.textContent('#npcDetail');
+  check('деталі жителя: стати, перки, предмети', /Стати/.test(dt) && /Перки/.test(dt) && /Предмети/.test(dt) && (await p.$$('#npcDetail .stat')).length >= 3, dt.slice(0, 80));
+  await p.click('button.dock-btn[data-win=inventory]');
+  check('інвентар відкривається, NPC-вікно закрите', await p.isVisible('.kwin[data-win=inventory]') && !(await p.isVisible('.kwin[data-win=npcs]')));
+  await p.click('[data-wtab=items]');
+  check('вкладка «Предмети»: порожні слоти', (await p.$$('.inv-grid > i')).length === 24);
+  await p.click('button.dock-btn[data-win=settings]');
+  await p.evaluate(() => { const r = document.querySelector('#hudScale'); r.value = '1.3'; r.dispatchEvent(new Event('input')); });
+  check('повзунок масштабу міняє --ui', (await p.evaluate(() => document.documentElement.style.getPropertyValue('--ui'))) === '1.3');
+  await p.evaluate(() => { const r = document.querySelector('#hudScale'); r.value = '1'; r.dispatchEvent(new Event('input')); });
+  await p.click('[data-wtab=keys]');
+  check('вкладка «Керування» має підказки', (await p.$$('.key-row')).length >= 5);
+  check('вікно налаштувань вміщається в екран', await p.evaluate(() => { const r = document.querySelector('.kwin[data-win=settings]').getBoundingClientRect(); return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; }));
+  await p.click('button.dock-btn[data-win=map]'); await p.waitForTimeout(800);
+  check('кнопка «Карта» виходить з міста', !(await p.$('#cityHud')));
 
   console.log('errors', errs.length ? errs : 'none');
   if (errs.length) fails++;

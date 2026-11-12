@@ -4,12 +4,12 @@ import { autosaveInfo, loadAutosave, loadState, pickSaveFile } from '../persist'
 import { ClientLobby, HostLobby, type JoinResult, connectToRoom, isValidRoomCode, normalizeRoomCode, openRoom } from '../net';
 
 const CSS = `
-.lb{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1420;z-index:10;font-family:sans-serif;color:#eee}
+.lb{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--k-bg,#1b1426);z-index:10;font-family:system-ui,sans-serif;color:var(--k-text,#f1e4c8)}
 .lb-box{width:340px;display:flex;flex-direction:column;gap:10px;zoom:var(--ui-scale,1)}
-.lb h2{margin:0 0 4px;text-align:center}
-.lb input,.lb button{font:inherit;padding:8px 10px;border-radius:6px;border:1px solid #5a4a6a;background:#2a2036;color:#eee}
-.lb button{cursor:pointer;background:#e0a030;color:#1a1420;border:0;font-weight:bold}
-.lb button:disabled{opacity:.5;cursor:default}.lb button.sec{background:#3a2e48;color:#eee}
+.lb h2{margin:0 0 4px;text-align:center;font-family:Georgia,serif;color:var(--k-gold,#e8c15a);letter-spacing:.04em}
+.lb input,.lb button{font:inherit;padding:8px 10px;border-radius:6px;border:1px solid var(--k-edge,#7a5f3a);background:var(--k-panel,#271d36);color:var(--k-text,#f1e4c8)}
+.lb button{cursor:pointer;background:var(--k-gold,#e8c15a);color:#1b1426;border:0;font-weight:bold}
+.lb button:disabled{opacity:.5;cursor:default}.lb button.sec{background:var(--k-panel2,#33264a);color:var(--k-text,#f1e4c8)}
 .lb .code{font-size:32px;letter-spacing:6px;text-align:center;user-select:all}
 .lb .err{color:#f66;min-height:1.2em}.lb ul{margin:0;padding-left:18px}
 .lb-scale{position:fixed;right:12px;bottom:12px;z-index:11;color:#aaa;font:12px sans-serif}

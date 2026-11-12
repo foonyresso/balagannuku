@@ -30,7 +30,7 @@ export class CityHud {
   constructor(hooks: HudHooks, private w: SimWorld, private player: string, private sector: number) {
     this.root.id = 'cityHud';
     this.root.innerHTML = `
-      <div id="cityTop" class="k-frame"><span id="cityRes"></span><span id="citySpeed">${SPEEDS.map((v) => `<button class="k-btn" data-speed="${v}" title="${v ? v + '×' : 'Пауза (Пробіл)'}">${v ? v + '×' : '⏸'}</button>`).join('')}<small id="speedActual"></small></span><button id="cityBack" class="k-btn">← До карти</button></div>
+      <div id="cityTop" class="k-frame"><span id="cityRes"></span><span id="citySpeed">${SPEEDS.map((v) => `<button class="k-btn" data-speed="${v}" title="${v ? v + '×' : 'Пауза (Пробіл)'}">${v ? v + '×' : '⏸'}</button>`).join('')}<small id="speedActual"></small></span></div>
       <div id="cityInfo" class="k-frame" hidden>
         <div class="hd"><div><h3 id="infoTitle" class="k-title"></h3><small id="infoKind"></small></div><button id="infoClose" class="k-btn" title="Закрити (Esc)">×</button></div>
         <table id="infoRows"></table>
@@ -50,7 +50,6 @@ export class CityHud {
       if (t && this.root.contains(t)) fn(t);
     });
     on('button[data-speed]', (b) => hooks.speed(Number(b.dataset.speed)));
-    this.$('#cityBack').onclick = () => hooks.back();
     this.$('#infoClose').onclick = () => hooks.deselect();
     this.$('#infoFollow').onclick = () => hooks.follow(!this.lastFollow);
     this.$('#infoDemolish').onclick = () => {
