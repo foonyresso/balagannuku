@@ -12,6 +12,7 @@ const { chromium } = require('playwright');
     if (!(await p.isDisabled('#play'))) break;
   }
   await p.click('#play'); await p.waitForTimeout(800);
+  await p.click('button.dock-btn[data-win=build]'); await p.click('[data-wtab=resources]');
   await p.click('button[data-k=sawmill]');
   let ok = false;
   for (let k = 0; k < 200 && !ok; k++) {

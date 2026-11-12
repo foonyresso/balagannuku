@@ -39,7 +39,7 @@ function addWorker(v: CityApi, id: number): void {
   send(v, { type: 'set_worker_count', building: id, count: slotsOf(b) + 1 }); // вільне місце займає автопризначення
   if (b.workers.length < slotsOf(b) && !idleNpcs(w, player).length) {
     v.hud.say('Вільних жителів немає: обери робітника зі списку, щоб перевести його сюди');
-    v.hud.openTab('people'); v.hud.assignTarget = id;
+    v.hud.openWindow('npcs'); v.hud.assignTarget = id;
   }
   v.refreshHud();
 }

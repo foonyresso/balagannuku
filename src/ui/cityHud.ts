@@ -1,99 +1,55 @@
 import type { BuildingKind } from '../shared';
-import { buildCheck, residents, slotsOf, type SimWorld } from '../sim';
-import { COSTS } from '../sim/balance';
-import { nameOf } from './names';
-import { BUILD_NAMES, describeSel, RES_NAMES, stateText, PROF_TXT, type Sel } from './info';
+import { buildCheck, residents, type SimWorld } from '../sim';
+import { describeSel, RES_NAMES, BUILD_NAMES, type Sel } from './info';
 import { SPEEDS } from './pacer';
+import type { HudHooks, HudState } from './hudTypes';
+import { SECTIONS } from './sections';
+import { WindowManager } from './windows';
+import './theme.css';
 import './cityHud.css';
 
-export type Tab = 'build' | 'people' | 'prod';
-export interface HudHooks {
-  pickBuild(k: BuildingKind | null): void;
-  select(sel: Sel, follow: boolean): void;
-  deselect(): void;
-  follow(on: boolean): void;
-  back(): void;
-  speed(s: number): void;
-  pause(id: number): void;
-  demolish(id: number): void;
-  addWorker(building: number): void;
-  removeWorker(building: number): void;
-  assign(npc: number, building: number): void;
-  unassign(npc: number): void;
-}
-export interface HudState {
-  selected: Sel | null; build: BuildingKind | null; following: boolean;
-  /** Цільова й фактична швидкість гри; locked — керує хост. */
-  speed: number; actualSpeed: number; speedLocked: boolean;
-}
+export type { HudHooks, HudState };
 
-const BUILDABLE = Object.keys(BUILD_NAMES).filter((k) => k !== 'townhall') as BuildingKind[];
-const TABS: [Tab, string][] = [['build', '🔨 Будівництво'], ['people', '👷 Робітники'], ['prod', '📊 Виробництво']];
-const cost = (k: BuildingKind) => Object.entries(COSTS[k] ?? {}).map(([r, v]) => `${v} ${RES_NAMES[r]?.toLowerCase()}`).join(', ');
-
-type RowMap = Map<number, { el: HTMLElement; text: string }>;
-/** Рядки списку живуть постійно й оновлюються на місці (а не перебудовуються): клік не губиться між mousedown і mouseup. */
-function syncRows(host: HTMLElement, map: RowMap, items: { key: number; text: string; cls?: string }[]): void {
-  const keys = new Set(items.map((i) => i.key));
-  let changed = false;
-  for (const [k, r] of map) if (!keys.has(k)) { r.el.remove(); map.delete(k); changed = true; }
-  for (const it of items) {
-    let r = map.get(it.key);
-    if (!r) {
-      const el = document.createElement('div');
-      el.className = 'row'; el.dataset.key = String(it.key);
-      r = { el, text: '' }; map.set(it.key, r); changed = true;
-    }
-    if (r.text !== it.text) { r.el.textContent = it.text; r.text = it.text; }
-    r.el.classList.toggle('bad', !!it.cls);
-  }
-  if (changed) for (const it of items) host.append(map.get(it.key)!.el);
-}
-
-/** Нижня панель вкладок, верхня смуга ресурсів і вікно інформації про виділений об'єкт. */
+/** Верхня смуга ресурсів і швидкості, нижня панель розділів з вікнами та картка інформації про виділений об'єкт. */
 export class CityHud {
   readonly root = document.createElement('div');
-  tab: Tab | null = 'build';
   private $ = (s: string) => this.root.querySelector<HTMLElement>(s)!;
-  private peopleRows: RowMap = new Map();
-  private prodRows: RowMap = new Map();
+  private wm: WindowManager;
   private infoSig = '';
-  private filter: 'all' | 'free' | 'busy' = 'all';
-  /** Режим призначення: клік по робітнику у списку сажає його в цю споруду. */
-  assignTarget: number | null = null;
+  /** Режим призначення: клік по картці жителя сажає його в цю споруду. */
+  private assign = { target: null as number | null };
   private lastNpc: number | null = null;
   private msgTimer: number | undefined;
+  private st: HudState = { selected: null, build: null, following: false, speed: 1, actualSpeed: 1, speedLocked: false };
+  private lastFollow = false;
+  private lastSelBuilding: number | null = null;
+
+  get assignTarget(): number | null { return this.assign.target; }
+  set assignTarget(v: number | null) { this.assign.target = v; }
 
   constructor(hooks: HudHooks, private w: SimWorld, private player: string, private sector: number) {
     this.root.id = 'cityHud';
     this.root.innerHTML = `
-      <div id="cityTop"><span id="cityRes"></span><span id="citySpeed">${SPEEDS.map((v) => `<button data-speed="${v}" title="${v ? v + '×' : 'Пауза (Пробіл)'}">${v ? v + '×' : '⏸'}</button>`).join('')}<small id="speedActual"></small></span><button id="cityBack">← До карти</button></div>
-      <div id="cityInfo" hidden>
-        <div class="hd"><div><h3 id="infoTitle"></h3><small id="infoKind"></small></div><button id="infoClose" title="Закрити (Esc)">×</button></div>
+      <div id="cityTop" class="k-frame"><span id="cityRes"></span><span id="citySpeed">${SPEEDS.map((v) => `<button class="k-btn" data-speed="${v}" title="${v ? v + '×' : 'Пауза (Пробіл)'}">${v ? v + '×' : '⏸'}</button>`).join('')}<small id="speedActual"></small></span><button id="cityBack" class="k-btn">← До карти</button></div>
+      <div id="cityInfo" class="k-frame" hidden>
+        <div class="hd"><div><h3 id="infoTitle" class="k-title"></h3><small id="infoKind"></small></div><button id="infoClose" class="k-btn" title="Закрити (Esc)">×</button></div>
         <table id="infoRows"></table>
-        <div id="infoSlots" hidden><span>Працівники</span><button data-slot="-">−</button><b id="slotNum"></b><button data-slot="+">+</button></div>
+        <div id="infoSlots" hidden><span>Працівники</span><button class="k-btn" data-slot="-">−</button><b id="slotNum"></b><button class="k-btn" data-slot="+">+</button></div>
         <div id="infoWorkers"></div>
         <div id="infoItems"></div>
         <div id="infoAssign"></div>
-        <div class="acts"><button id="infoFollow"></button><button id="infoFree" hidden>Звільнити з роботи</button><button data-pause hidden></button><button id="infoDemolish" hidden>Знести</button></div>
+        <div class="acts"><button class="k-btn" id="infoFollow"></button><button class="k-btn" id="infoFree" hidden>Звільнити з роботи</button><button class="k-btn" data-pause hidden></button><button class="k-btn" id="infoDemolish" hidden>Знести</button></div>
       </div>
-      <div id="cityMsg"></div>
-      <div id="cityBottom">
-        <div id="cityBody">
-          <div data-body="build" class="btns">${BUILDABLE.map((k) => `<button data-k="${k}"><b>${BUILD_NAMES[k]}</b><small>${cost(k)}</small></button>`).join('')}</div>
-          <div data-body="people"><div id="peopleFilter">${(['all', 'free', 'busy'] as const).map((f) => `<button data-f="${f}"></button>`).join('')}</div><div class="list" id="peopleList"></div></div>
-          <div data-body="prod" class="list"></div>
-        </div>
-        <div id="cityTabs">${TABS.map(([t, l]) => `<button data-tab="${t}">${l}</button>`).join('')}<span id="cityHint"></span></div>
-      </div>`;
+      <div id="cityNotes"><div id="cityHint"></div><div id="cityMsg"></div></div>`;
     document.body.appendChild(this.root);
+    this.wm = new WindowManager(this.root, SECTIONS, { hooks, w, player, sector, assign: this.assign });
+    // Esc: спершу закриває вікно в центрі; пласке вікно будівництва закривається, лише коли нічого скасовувати.
+    window.addEventListener('keydown', this.onKey, true);
     const on = (sel: string, fn: (t: HTMLElement) => void, ev = 'click') => this.root.addEventListener(ev, (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>(sel);
       if (t && this.root.contains(t)) fn(t);
     });
-    on('button[data-k]', (b) => hooks.pickBuild(this.lastBuild === b.dataset.k ? null : (b.dataset.k as BuildingKind)));
     on('button[data-speed]', (b) => hooks.speed(Number(b.dataset.speed)));
-    on('button[data-tab]', (b) => { this.tab = this.tab === b.dataset.tab ? null : (b.dataset.tab as Tab); this.showTab(); this.update(this.st); });
     this.$('#cityBack').onclick = () => hooks.back();
     this.$('#infoClose').onclick = () => hooks.deselect();
     this.$('#infoFollow').onclick = () => hooks.follow(!this.lastFollow);
@@ -104,38 +60,25 @@ export class CityHud {
       const id = this.lastSelBuilding; if (id !== null) hooks.demolish(id);
     };
     on('button[data-pause]', () => { const id = this.lastSelBuilding; if (id !== null) hooks.pause(id); });
-    // Рядки списків/працівників спрацьовують на pointerdown: вміст оновлюється, і click може не дійти.
-    const pick = (sel: Sel) => hooks.select(sel, false);
-    on('[data-body=people] .row', (r) => {
-      const id = Number(r.dataset.key);
-      if (this.assignTarget !== null) { hooks.assign(id, this.assignTarget); this.assignTarget = null; this.update(this.st); return; }
-      pick({ t: 'npc', id });
-    }, 'pointerdown');
-    on('button[data-f]', (b) => { this.filter = b.dataset.f as typeof this.filter; this.update(this.st); });
+    // Рядки спрацьовують на pointerdown: вміст оновлюється, і click може не дійти.
     on('button[data-slot]', (b) => {
       const id = this.lastSelBuilding; if (id === null) return;
       if (b.dataset.slot === '+') hooks.addWorker(id); else hooks.removeWorker(id);
     });
     on('#infoAssign button', (b) => { const id = this.lastNpc; if (id !== null) hooks.assign(id, Number(b.dataset.b)); });
     this.$('#infoFree').onclick = () => { if (this.lastNpc !== null) hooks.unassign(this.lastNpc); };
-    on('[data-body=prod] .row', (r) => pick({ t: 'building', id: Number(r.dataset.key) }), 'pointerdown');
     on('#infoItems .row', (r) => hooks.select(JSON.parse(r.dataset.sel!) as Sel, false), 'pointerdown');
-    on('#infoWorkers .row', (r) => pick({ t: 'npc', id: Number(r.dataset.key) }), 'pointerdown');
-    this.showTab();
+    on('#infoWorkers .row', (r) => hooks.select({ t: 'npc', id: Number(r.dataset.key) }, false), 'pointerdown');
   }
 
-  private st: HudState = { selected: null, build: null, following: false, speed: 1, actualSpeed: 1, speedLocked: false };
-  private lastBuild: BuildingKind | null = null;
-  private lastFollow = false;
-  private lastSelBuilding: number | null = null;
+  private onKey = (e: KeyboardEvent): void => {
+    if (e.key !== 'Escape') return;
+    const place = this.wm.openPlace;
+    if (place === 'center' || (place === 'dock' && !this.st.build && !this.st.selected)) { this.wm.close(); this.assign.target = null; e.stopImmediatePropagation(); }
+  };
 
-  openTab(t: Tab): void { this.tab = t; this.showTab(); }
-
-  private showTab(): void {
-    this.root.querySelectorAll<HTMLElement>('[data-body]').forEach((e) => { e.hidden = e.dataset.body !== this.tab; });
-    this.root.querySelectorAll<HTMLElement>('button[data-tab]').forEach((b) => b.classList.toggle('sel', b.dataset.tab === this.tab));
-    this.$('#cityBody').hidden = this.tab === null;
-  }
+  /** Відкрити розділ за id (`build`, `economy`, `npcs`…). */
+  openWindow(id: string, tab?: string): void { this.wm.open(id, tab); }
 
   /** Коротке повідомлення над нижньою панеллю (зникає саме). */
   say(text: string): void {
@@ -153,47 +96,17 @@ export class CityHud {
   update(st: HudState): void {
     this.st = st;
     const w = this.w;
-    this.lastBuild = st.build; this.lastFollow = st.following;
+    this.lastFollow = st.following;
     this.updateSpeed(st);
     const p = w.state.players.find((x) => x.id === this.player)!;
     const list = residents(w, this.player);
     const idle = list.filter((r) => r.workplace < 0).length;
-    this.$('#cityRes').innerHTML = Object.entries(RES_NAMES).map(([k, n]) => `${n}: <b>${p.resources[k as 'wood']}</b>`).join(' · ') +
-      ` · Жителів: <b>${list.length}</b>, вільних: <b>${idle}</b>`;
-    this.root.querySelectorAll<HTMLButtonElement>('button[data-k]').forEach((btn) => {
-      const k = btn.dataset.k as BuildingKind, c = buildCheck(w, this.player, k);
-      btn.classList.toggle('no', !c.ok); btn.classList.toggle('sel', st.build === k);
-      btn.title = c.ok ? (c.free ? 'Перший лісоруб безкоштовний' : '') : `Не вистачає: ${this.missingText(k)}`;
-    });
-    this.$('#cityHint').textContent = this.assignTarget !== null ? 'Обери робітника у списку, щоб посадити його в споруду (клік по вкладці — скасувати)'
-      : st.build
-      ? `Будівництво: ${BUILD_NAMES[st.build]} — клік по землі, Esc або ПКМ — скасувати`
-      : 'Клікни по жителю, споруді, дереву чи дорозі, щоб побачити інформацію';
-    if (this.tab === 'people') {
-      const nFree = list.filter((r) => r.workplace < 0).length;
-      const names: Record<string, string> = { all: `Усі (${list.length})`, free: `Вільні (${nFree})`, busy: `Зайняті (${list.length - nFree})` };
-      this.root.querySelectorAll<HTMLButtonElement>('button[data-f]').forEach((bt) => {
-        const t = names[bt.dataset.f!]; if (bt.textContent !== t) bt.textContent = t;
-        bt.classList.toggle('sel', bt.dataset.f === this.filter);
-      });
-      const shown = list.filter((r) => this.filter === 'all' || (this.filter === 'free') === (r.workplace < 0));
-      syncRows(this.$('#peopleList'), this.peopleRows, shown.map((r) => ({
-        key: r.id, text: `${nameOf(w, r.id)} · ${PROF_TXT[r.profession] ?? r.profession}${r.workplace >= 0 ? ` #${r.workplace}` : ''}: ${stateText(r)}`,
-        cls: r.state === 'no_path' ? 'x' : undefined,
-      })).slice(0, 300));
-      this.markSel(this.peopleRows, st.selected?.t === 'npc' ? st.selected.id : -1);
-    }
-    if (this.tab === 'prod') {
-      const live = w.state.buildings.filter((b) => b.owner === this.player);
-      const infos = live.map((b) => ({ b, i: describeSel(w, this.player, this.sector, { t: 'building', id: b.id }) }));
-      syncRows(this.$('[data-body=prod]'), this.prodRows, infos.map(({ b, i }) => {
-        const get = (n: string) => i?.rows.find((r) => r[0] === n)?.[1];
-        const max = slotsOf(b);
-        const parts = [get('Стан'), max ? `працівників ${b.workers.length}/${max}` : '', get('Ефективність') ? `ефективність ${get('Ефективність')}` : '', get('Виробіток')].filter(Boolean);
-        return { key: b.id, text: `${i?.title}: ${parts.join(' · ')}`, cls: i?.warn ? 'x' : undefined };
-      }));
-      this.markSel(this.prodRows, st.selected?.t === 'building' ? st.selected.id : -1);
-    }
+    this.$('#cityRes').innerHTML = Object.entries(RES_NAMES).map(([k, n]) => `<span class="res"><i class="k-pip ${k}"></i>${n} <b>${p.resources[k as 'wood']}</b></span>`).join('') +
+      `<span class="res">Жителів <b>${list.length}</b>, вільних <b>${idle}</b></span>`;
+    this.$('#cityHint').textContent = this.assign.target !== null ? 'Обери жителя в списку, щоб посадити його в споруду (Esc — скасувати)'
+      : st.build ? `Будівництво: ${BUILD_NAMES[st.build]}. Клік по землі, Esc або ПКМ — скасувати` : '';
+    this.wm.mark('build', !!st.build);
+    this.wm.update(st);
     this.updateInfo(st);
   }
 
@@ -209,15 +122,13 @@ export class CityHud {
     if (el.textContent !== t) el.textContent = t;
   }
 
-  private markSel(map: RowMap, id: number): void { for (const [k, r] of map) r.el.classList.toggle('sel', k === id); }
-
   private updateInfo(st: HudState): void {
     const box = this.$('#cityInfo');
     const info = st.selected ? describeSel(this.w, this.player, this.sector, st.selected) : null;
     box.hidden = !info;
     this.lastSelBuilding = info?.building ?? null;
     this.lastNpc = info?.npc ?? null;
-    if (!info) { this.infoSig = ''; this.assignTarget = null; return; }
+    if (!info) { this.infoSig = ''; return; }
     const sig = JSON.stringify([info.title, info.kind, info.rows, info.workers, info.items, info.warn, info.assign, info.canUnassign, info.slots]);
     if (sig !== this.infoSig) {
       this.infoSig = sig;
@@ -236,7 +147,7 @@ export class CityHud {
       }
       box.classList.toggle('bad', !!info.warn);
       const asg = this.$('#infoAssign');
-      asg.innerHTML = info.assign ? '<h4>Призначити на роботу</h4>' + (info.assign.length ? info.assign.map((a) => `<button data-b="${a.building}">${a.label}</button>`).join('') : '<div class="none">вільних місць немає</div>') : '';
+      asg.innerHTML = info.assign ? '<h4>Призначити на роботу</h4>' + (info.assign.length ? info.assign.map((a) => `<button class="k-btn" data-b="${a.building}">${a.label}</button>`).join('') : '<div class="none">вільних місць немає</div>') : '';
       this.$('#infoFree').hidden = !info.canUnassign;
       const sl = this.$('#infoSlots'); sl.hidden = !info.slots;
       if (info.slots) this.$('#slotNum').textContent = `${info.slots.cur}/${info.slots.cap}`;
@@ -252,5 +163,5 @@ export class CityHud {
     if (dm.hidden) { dm.classList.remove('arm'); dm.textContent = 'Знести'; }
   }
 
-  destroy(): void { window.clearTimeout(this.msgTimer); this.root.remove(); }
+  destroy(): void { window.clearTimeout(this.msgTimer); window.removeEventListener('keydown', this.onKey, true); this.wm.destroy(); this.root.remove(); }
 }

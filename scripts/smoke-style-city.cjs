@@ -56,7 +56,8 @@ const check = (name, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', name
   for (let i = 0; i < 3; i++) { await p.keyboard.press('KeyN'); times.push((await st()).time); }
   check('пори доби перемикаються по колу (N)', new Set(times).size === 3, times.join());
   // режим будівництва з привидом-спрайтом
-  await p.click('button[data-k=house]'); await p.mouse.move(400, 300); await p.waitForTimeout(500);
+  await p.click('button.dock-btn[data-win=build]'); await p.click('[data-wtab=housing]');
+  await p.click('button[data-k=house]'); await p.mouse.move(400, 150); await p.waitForTimeout(500);
   check('привид споруди зі спрайтом видно', (await st()).ghost);
   await p.keyboard.press('Escape');
   // репліки й емоції над жителями: за ~25 с з'являються і тексти, і емоції (зум близький)

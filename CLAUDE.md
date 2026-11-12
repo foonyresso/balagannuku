@@ -32,6 +32,7 @@
 | тайли, клітинки, розміри, прохідність | `docs/systems/grid.md` |
 | формат сейва, міграції | `docs/systems/save.md` |
 | мережа, лобі | `docs/systems/net.md` |
+| нове вікно/розділ інтерфейсу, тема | `docs/systems/ui.md` |
 | вигляд міста, ввід, камера | `src/render/city/CLAUDE.md` |
 | спрайти споруд і жителів | `src/render/style/CLAUDE.md` |
 | поведінка працівників, нова професія | `src/sim/jobs/CLAUDE.md` |
