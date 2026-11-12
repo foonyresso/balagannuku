@@ -5,7 +5,7 @@ import { canClaimStart, claimStart, createInitialState, DEFAULT_WORLD_RADIUS, SE
 import { mulberry32 } from './sim/rng';
 import { mountLobby } from './ui';
 import { ClientSession, HostSession, mkPlayer, type MapState } from './net';
-import { CityView } from './render/cityView';
+import { CityView } from './render/city';
 import { startCity, wrapState, type SimWorld } from './sim';
 import { mountSaveMenu, SaveController, takeLoaded, type LoadedGame } from './persist';
 

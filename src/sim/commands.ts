@@ -5,7 +5,7 @@ import { ACTIVE_MAX_TILE, ACTIVE_MIN_TILE } from '../shared';
 import { FISH_SHORE_RADIUS, COSTS, FOOTPRINT, JOB_OF, MAX_WORKERS, PLACE_MARGIN, START_SETTLERS, START_STOCK, STORAGE_CAP } from './balance';
 import { assignNpc, autoStaffIdle, slotsOf, unassignNpc } from './assign';
 import { spawnNpc } from './npcs';
-import { syncPlayerResources } from './step';
+import { syncPlayerResources } from './systems/resources';
 import { C as CELLS, CENTER_TILE, NODE_NONE, T as TILES, TPC, getSectorRt, markFootprint, shoreNear, nodeTile, rebuildIndex, type SimWorld } from './world';
 
 type Res = { ok: true } | { ok: false; reason: CommandRejectReason };

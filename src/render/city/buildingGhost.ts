@@ -1,6 +1,6 @@
 import { Container, Graphics, Sprite } from 'pixi.js';
-import { planeToIso } from './projection';
-import { buildingArt } from './style';
+import { planeToIso } from '../projection';
+import { buildingArt } from '../style';
 
 const GROUND_OK = 0x8fd3ff, GROUND_BAD = 0xff5050, BAD = 0xff5050;
 
