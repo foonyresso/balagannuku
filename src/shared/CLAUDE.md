@@ -10,6 +10,7 @@
 - `state.ts`: `GameState` (усе дерево стану), `BuildingState`, `NpcStore` (SoA, індекс = `NpcId`), `PROFESSIONS`, `TASKS`.
 - `npc.ts`: стати (`NPC_STATS`), перки (`PERKS`), імена.
 - `commands.ts`: `Command`, `CommandResult`. Єдиний спосіб змінити стан.
+- `camp.ts`: вогнище вільних жителів (`CAMP_*`, `campSlotSpot`). Не серіалізується.
 - `trails.ts`: стадії стежок, пороги, упаковка шару трафіку.
 - `flows.ts`: облік потоків ресурсів (`FlowLedger`).
 - `save.ts`: `SaveFile`, `SAVE_VERSION`, `MIGRATIONS`.

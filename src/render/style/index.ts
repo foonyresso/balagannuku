@@ -1,5 +1,6 @@
 import { ensureAtlas } from './atlas';
 import { registerBuildingSprites } from './buildings';
+import { registerCampfireSprite } from './campfire';
 import { registerCharacters } from './characters';
 import { registerProps } from './props';
 
@@ -23,7 +24,7 @@ let registered = false, ready = false;
 export function registerStyleDefs(tile: number): void {
   if (registered) return;
   registered = true;
-  registerProps(); registerCharacters(); registerBuildingSprites(tile);
+  registerProps(); registerCharacters(); registerBuildingSprites(tile); registerCampfireSprite(tile);
 }
 /** Реєструє й малює всі спрайти стилю в атласи (раз на запуск). tile — одиниць площини на тайл. */
 export function initStyle(tile: number): void {

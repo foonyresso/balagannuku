@@ -80,12 +80,6 @@
 - `shared/fauna.ts`, `shared/state.ts`, `shared/save.ts`: контракт змінює форму стану, тож `SAVE_VERSION` піднімай від поточного значення в `main`, а не від того, що в гілці.
 - `scripts/smoke-fauna.cjs` підхопиться `check.cjs` сам.
 
-### Вогнище для вільних NPC: `claude/project-thread-2fglph`, база `ccf333b`
-- `sim/camp.ts` стає `sim/systems/camp.ts` (слоти біля вогнища, бродіння вільних), рядок у `stepWorld`.
-- Вільний NPC зараз обробляється на початку `stepNpc` (`if (!b)`) у `sim/jobs/npc.ts`: туди йде виклик бродіння.
-- Зміни `world.ts` (`NpcRt`), `commands.ts` (`checkPlace`, `startCity`), `assign.ts`, `npcs.ts` лягають у ті самі файли.
-- Якщо вогнище — споруда, вона стає записом у `BUILDINGS`.
-
 ### LOD, колихання дерев і трави: `claude/project-thread-m7l8rt`, база `c14cf04`
 - `render/lod.ts` і `render/grassLayer.ts` стають `render/city/lod.ts` і `render/city/grassLayer.ts`.
 - Рівень деталізації від зуму рахується раз на кадр у `view.ts` (`draw`) і передається частинам; відсікання й дерева — `city/layers.ts` і `city/nodes.ts`, спрощення жителів — `city/npcs.ts`.

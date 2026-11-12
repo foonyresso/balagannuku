@@ -28,6 +28,7 @@
 | нова споруда, професія, ресурс | `docs/systems/economy.md` |
 | хто куди несе, склади, носії | `docs/systems/logistics.md` |
 | стежки й дороги | `docs/systems/trails.md` |
+| вогнище, вільні жителі | `docs/systems/camp.md` |
 | тайли, клітинки, розміри, прохідність | `docs/systems/grid.md` |
 | формат сейва, міграції | `docs/systems/save.md` |
 | мережа, лобі | `docs/systems/net.md` |

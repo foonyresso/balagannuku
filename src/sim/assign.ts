@@ -9,7 +9,7 @@ export function unassignNpc(w: SimWorld, npc: number): void {
   const b = cur >= 0 ? w.byId.get(cur) : undefined;
   if (b) b.workers = b.workers.filter((id) => id !== npc);
   const n = w.state.npcs;
-  w.npc.workplace[npc] = -1; w.npc.phase[npc] = 0; w.npc.path[npc] = null;
+  w.npc.workplace[npc] = -1; w.npc.camp[npc] = -1; w.npc.phase[npc] = 0; w.npc.path[npc] = null;
   n.profession[npc] = 0; n.task[npc] = 0;
   n.carryAmount[npc] = 0; n.carryKind[npc] = 255; w.npc.stage[npc] = 0; // ноша губиться
 }
