@@ -226,6 +226,8 @@ const applyScale = () => {
 };
 try { ui.value = localStorage.getItem('uiScale') ?? '1'; } catch { /* ignore */ }
 ui.oninput = applyScale;
+// Масштаб змінили з налаштувань у місті: підтягуємо повзунок на карті.
+window.addEventListener('uiscale', () => { try { ui.value = localStorage.getItem('uiScale') ?? '1'; } catch { /* ignore */ } $('uiVal').textContent = `${Math.round(Number(ui.value) * 100)}%`; });
 applyScale();
 
 // Збереження: автосейв в IndexedDB за таймером, кнопка «Збереження» (файл/завантаження). Зберігає лише хост.

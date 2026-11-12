@@ -1,12 +1,13 @@
 /* Тема інтерфейсу гри (палітра в дусі Kingdom): темний пурпур, золото, пергамент.
    Усі розміри в em від #cityHud (13px × --ui), без фіксованих пікселів. Нові вікна й картки беруть лише ці змінні й класи. */
-#cityHud {
+/* Змінні на :root, щоб тема працювала й поза #cityHud (меню збереження, лобі). */
+:root {
   --k-bg: #1b1426; --k-panel: #271d36; --k-panel2: #33264a; --k-edge: #7a5f3a; --k-gold: #e8c15a; --k-gold-dim: #b08f3f;
   --k-text: #f1e4c8; --k-muted: #a99cbd; --k-teal: #58b8aa; --k-red: #d4605a; --k-green: #8fc46a;
   --k-shadow: 0 0.3em 1.2em rgba(0, 0, 0, 0.55);
   --k-serif: Georgia, 'Palatino Linotype', 'Times New Roman', serif;
-  font-family: system-ui, 'Segoe UI', sans-serif; color: var(--k-text);
 }
+#cityHud { font-family: system-ui, 'Segoe UI', sans-serif; color: var(--k-text); }
 /* Рамка: подвійний золотий кант, «вирізані» кути. */
 .k-frame { background: var(--k-panel); border: 0.16em solid var(--k-edge); border-radius: 0.5em; box-shadow: var(--k-shadow), inset 0 0 0 0.12em var(--k-bg), inset 0 0 0 0.2em rgba(232, 193, 90, 0.25); }
 .k-title { font-family: var(--k-serif); font-weight: bold; letter-spacing: 0.04em; color: var(--k-gold); text-shadow: 0 0.1em 0 #000; }

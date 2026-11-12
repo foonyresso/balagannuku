@@ -32,8 +32,8 @@ export const PROF_TXT: Record<string, string> = {
 export const STAGE_TXT = ['', 'витоптана стежка', 'дорога', 'вимощена дорога'];
 const OUT: Partial<Record<BuildingKind, 'wood' | 'stone' | 'planks' | 'food'>> = { lumberjack: 'wood', quarry: 'stone', sawmill: 'planks', farm: 'food', hunter: 'food', fisher: 'food' };
 
-const STAT_TXT: Record<string, string> = { walk: 'Швидкість ходьби', carry: 'Вантажопідйомність', gather: 'Швидкість добування', rare: 'Шанс рідкісного ресурсу' };
-const PERK_TXT: Record<string, string> = { swift: 'Швидкоходик', porter: 'Носій', woodcutter: 'Лісоруб від природи', stonecutter: 'Каменяр від природи', lucky: 'Щасливчик' };
+export const STAT_TXT: Record<string, string> = { walk: 'Швидкість ходьби', carry: 'Вантажопідйомність', gather: 'Швидкість добування', rare: 'Шанс рідкісного ресурсу' };
+export const PERK_TXT: Record<string, string> = { swift: 'Швидкоходик', porter: 'Носій', woodcutter: 'Лісоруб від природи', stonecutter: 'Каменяр від природи', lucky: 'Щасливчик' };
 
 /** Рядки стат і перків жителя (стати в %, 100 = норма; rare — проміле). */
 function statRows(w: SimWorld, id: number): [string, string][] {
