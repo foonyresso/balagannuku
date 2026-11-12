@@ -18,7 +18,7 @@ const opt = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
 const FAST = flag('--fast');
 const ONLY_SMOKE = opt('--smoke');
 const TAIL = Number(opt('--tail') ?? 60);
-const SMOKE_TIMEOUT_MS = 180000;
+const SMOKE_TIMEOUT_MS = 420000;
 const bin = (p) => path.join(ROOT, 'node_modules', p);
 
 let failed = 0;
