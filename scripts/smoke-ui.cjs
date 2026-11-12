@@ -27,6 +27,15 @@ const perf = (name, ok, extra = '') => (slowGl && !ok ? console.log('warn', name
   await p.mouse.click(300, 600); await p.waitForTimeout(100);
   check('клік по карті без вибору не будує', (await nb()) === n0);
 
+  check('нижня панель: усі розділи', (await p.$$('#cityDock button.dock-btn')).length >= 3);
+  check('вікна закриті на старті', !(await p.isVisible('.kwin')));
+  await p.click('button.dock-btn[data-win=build]');
+  check('кнопка «Будівництво» відкриває пласке вікно над панеллю', await p.isVisible('.kwin[data-win=build]') && (await p.getAttribute('.kwin[data-win=build]', 'data-place')) === 'dock');
+  await p.click('[data-wtab=mood]');
+  check('вкладка без споруд показує заглушку', (await p.textContent('[data-pane=mood]')).trim().length > 5 && !(await p.$('[data-pane=mood] button[data-k]')));
+  await p.click('[data-wtab=housing]');
+  check('вкладка «Житло» має споруди', !!(await p.$('[data-pane=housing] button[data-k=house]')));
+  await p.click('[data-wtab=resources]');
   await p.click('button[data-k=quarry]');
   check('вибір будівлі вмикає режим будівництва', (await st()).build === 'quarry');
   await p.keyboard.press('Escape');
@@ -36,7 +45,7 @@ const perf = (name, ok, extra = '') => (slowGl && !ok ? console.log('warn', name
   check('режим будівництва: видно прозорий «привид» будівлі', (await st()).ghost);
   const L = (await st()).layers;
   check('контур footprint лежить під голограмою (земля < контур < привид < рамки)', L.ground < L.base && L.base < L.ghost && L.ghost < L.hover, JSON.stringify(L));
-  await p.mouse.click(300, 600, { button: 'right' });
+  await p.mouse.click(300, 450, { button: 'right' });
   await p.waitForTimeout(100);
   check('після скасування привид зникає', !(await st()).ghost);
   check('ПКМ скасовує будівництво', (await st()).build === null);
@@ -162,18 +171,25 @@ const perf = (name, ok, extra = '') => (slowGl && !ok ? console.log('warn', name
 
   // Вкладки
   await p.keyboard.press('Escape');
-  await p.click('button[data-tab=people]'); await p.waitForTimeout(300);
-  const rows = await p.$$('[data-body=people] .row');
-  check('вкладка «Жителі» має рядки', rows.length > 0);
+  await p.click('button.dock-btn[data-win=npcs]'); await p.waitForTimeout(300);
+  check('розділ «Жителі» відкривається в центрі екрана і закриває вікно будівництва', await p.isVisible('.kwin[data-win=npcs]') && !(await p.isVisible('.kwin[data-win=build]')));
+  const bx = await p.evaluate(() => { const r = document.querySelector('.kwin[data-win=npcs]').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+  check('вікно по центру', Math.abs(bx[0] - 640) < 30 && Math.abs(bx[1] - 400) < 60, JSON.stringify(bx));
+  const rows = await p.$$('#peopleList .row');
+  check('жителі картками', rows.length > 0 && (await rows[0].$('.av')) !== null);
   await rows[0].dispatchEvent('pointerdown', { bubbles: true });
-  check('клік по рядку жителя виділяє його', (await st()).sel?.t === 'npc');
-  await p.click('button[data-tab=prod]'); await p.waitForTimeout(300);
-  const prows = await p.$$('[data-body=prod] .row');
-  check('вкладка «Виробництво» має рядки', prows.length > 0);
+  check('клік по картці жителя виділяє його', (await st()).sel?.t === 'npc');
+  await p.keyboard.press('Escape');
+  check('Esc закриває вікно в центрі', !(await p.isVisible('.kwin[data-win=npcs]')) && (await st()).sel?.t === 'npc');
+  await p.click('button.dock-btn[data-win=economy]'); await p.waitForTimeout(300);
+  const prows = await p.$$('[data-pane=prod] .row');
+  check('«Економіка → Виробництво» має рядки', prows.length > 0);
   await prows[0].dispatchEvent('pointerdown', { bubbles: true });
   check('клік по рядку споруди виділяє її', (await st()).sel?.t === 'building');
-  await p.click('button[data-tab=prod]');
-  check('повторний клік по вкладці згортає панель', !(await p.isVisible('#cityBody')));
+  await p.click('[data-wtab=res]');
+  check('«Економіка → Ресурси» показує запаси', /[0-9]/.test(await p.textContent('[data-pane=res]')));
+  await p.click('button.dock-btn[data-win=economy]');
+  check('повторний клік по кнопці закриває вікно', !(await p.isVisible('.kwin[data-win=economy]')));
 
 
   // Робітники: +/−, вільні/зайняті, призначення
@@ -185,12 +201,12 @@ const perf = (name, ok, extra = '') => (slowGl && !ok ? console.log('warn', name
   check('у споруді є слоти X/Y і працівники', c0 > 0, await slots());
   await p.click('button[data-slot="-"]'); await p.waitForTimeout(300);
   check('«−» зменшує кількість працівників', (await cur()) === c0 - 1, await slots());
-  await p.click('button[data-tab=people]'); await p.waitForTimeout(300);
+  await p.click('button.dock-btn[data-win=npcs]'); await p.waitForTimeout(300);
   await p.click('button[data-f=free]'); await p.waitForTimeout(300);
   check('вкладка «Вільні» показує звільненого', (await p.$$('#peopleList .row')).length >= 1);
   await p.click('button[data-f=busy]'); await p.waitForTimeout(300);
   check('вкладка «Зайняті» має рядки', (await p.$$('#peopleList .row')).length >= 1);
-  await p.click('button[data-tab=people]');
+  await p.click('button.dock-btn[data-win=npcs]');
   await p.click('button[data-slot="+"]'); await p.waitForTimeout(300);
   check('«+» не перевищує максимум', (await cur()) <= Number((await slots()).split('/')[1]), await slots());
   const npcId = await p.evaluate(() => window.__city.debugState().npcs[0].id);
@@ -232,18 +248,18 @@ const perf = (name, ok, extra = '') => (slowGl && !ok ? console.log('warn', name
   await p.click('button[data-speed="1"]');
 
   // Стабільність позицій кнопок при зміні динамічного тексту
-  const xs = () => p.evaluate(() => [...document.querySelectorAll('#citySpeed button, #cityBack, #cityTabs button')].map((e) => Math.round(e.getBoundingClientRect().left * 10) / 10));
+  const xs = () => p.evaluate(() => [...document.querySelectorAll('#citySpeed button, #cityBack, #cityDock button')].map((e) => Math.round(e.getBoundingClientRect().left * 10) / 10));
   const xs0 = await xs();
   for (const t of ['', 'фактично ≈1.6×', 'фактично ≈100×', 'керує хост']) {
     await p.evaluate((x) => { document.querySelector('#speedActual').textContent = x; }, t);
     await p.evaluate((x) => { document.querySelector('#cityRes').textContent = x; }, t ? t.repeat(3) : 'Дерево: 5');
     check(`кнопки не зсуваються при тексті «${t}»`, JSON.stringify(await xs()) === JSON.stringify(xs0));
   }
-  await p.click('button[data-tab=people]');
+  await p.click('button.dock-btn[data-win=npcs]');
   const f0 = await p.evaluate(() => [...document.querySelectorAll('#peopleFilter button')].map((e) => Math.round(e.getBoundingClientRect().left)));
   await p.evaluate(() => { document.querySelectorAll('#peopleFilter button').forEach((b, i) => { b.textContent = ['Усі (1)', 'Вільні (1234)', 'Зайняті (0)'][i]; }); });
   check('фільтри Усі/Вільні/Зайняті не зсуваються при зміні лічильників', JSON.stringify(await p.evaluate(() => [...document.querySelectorAll('#peopleFilter button')].map((e) => Math.round(e.getBoundingClientRect().left)))) === JSON.stringify(f0));
-  await p.click('button[data-tab=people]');
+  await p.click('button.dock-btn[data-win=npcs]');
 
   console.log('errors', errs.length ? errs : 'none');
   if (errs.length) fails++;

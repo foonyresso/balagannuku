@@ -1,48 +1,70 @@
-#cityHud { position: fixed; inset: 0; pointer-events: none; font-size: calc(13px * var(--ui, 1)); line-height: 1.4; color: #eee; font-family: sans-serif; }
+/* Розкладка панелі міста. Кольори й рамки — з theme.css. */
+#cityHud { --dock-h: 4.8em; position: fixed; inset: 0; pointer-events: none; font-size: calc(13px * var(--ui, 1)); line-height: 1.4; }
 #cityHud > * { pointer-events: auto; }
-#cityHud button { font: inherit; padding: 0.3em 0.7em; cursor: pointer; color: #eee; background: #3a2f4a; border: 1px solid #665a78; border-radius: 0.35em; }
-#cityHud button:hover { background: #4b3e60; }
-#cityHud button.sel { outline: 2px solid #ffd54f; }
-#cityHud button.no { opacity: 0.55; }
-#cityRes { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #cityHud [hidden] { display: none !important; }
+#cityHud .k-card { font: inherit; }
 #cityTop { position: absolute; top: 0; left: 0; right: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 1em; font-variant-numeric: tabular-nums;
-  padding: 0.4em 1em; background: rgba(20, 14, 28, 0.88); }
-#cityInfo { position: absolute; right: 0.8em; bottom: 9em; width: 21em; max-height: 60vh; overflow: auto; padding: 0.7em 0.9em;
-  background: rgba(20, 14, 28, 0.94); border: 1px solid #665a78; border-radius: 0.6em; }
-#cityInfo.bad { border-color: #c55; }
+  padding: 0.35em 1em; border-radius: 0; border-width: 0 0 0.16em; }
+#cityRes { display: flex; flex-wrap: nowrap; gap: 0.9em; overflow: hidden; white-space: nowrap; }
+#cityRes .res { display: inline-flex; align-items: center; gap: 0.35em; }
+#cityRes b { color: var(--k-gold); }
+#citySpeed { display: flex; align-items: center; gap: 0.25em; }
+#citySpeed button { min-width: 2.6em; padding: 0.15em 0.4em; }
+#speedActual { display: inline-block; box-sizing: border-box; width: 11em; margin-left: 0.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--k-red); }
+#cityBack { white-space: nowrap; }
+#cityNotes { position: absolute; top: 3.4em; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.3em; pointer-events: none; max-width: 90vw; }
+#cityHint:not(:empty) { padding: 0.2em 0.9em; border-radius: 1em; background: rgba(27, 20, 38, 0.9); border: 0.08em solid var(--k-edge); color: var(--k-teal); text-align: center; }
+#cityMsg { color: var(--k-gold); text-shadow: 0 0 0.3em #000, 0 0.1em 0 #000; text-align: center; }
+
+/* Нижня панель розділів */
+#cityDock { position: absolute; left: 50%; bottom: 0.6em; transform: translateX(-50%); display: flex; gap: 0.4em; padding: 0.5em 0.7em; }
+.dock-btn { flex-direction: column; gap: 0.1em; min-width: 5.4em; padding: 0.35em 0.5em; font-size: 0.9em; }
+.dock-btn .k-ico { width: 1.9em; height: 1.9em; }
+.dock-btn.active:not(.sel) { border-color: var(--k-gold); color: var(--k-gold); }
+
+/* Вікна розділів */
+.kwin { position: absolute; display: flex; flex-direction: column; box-sizing: border-box; max-width: 94vw; overflow: hidden; }
+.kwin[data-place=center] { left: 50%; top: 50%; transform: translate(-50%, -50%); width: 58em; height: 34em; max-height: 78vh; }
+.kwin[data-place=dock] { left: 50%; bottom: calc(var(--dock-h) + 1em); transform: translateX(-50%); width: 50em; max-height: 42vh; }
+.kwin-hd { display: flex; align-items: center; gap: 0.6em; padding: 0.5em 0.8em 0.4em; color: var(--k-gold); }
+.kwin-hd h2 { flex: 1; margin: 0; font-size: 1.25em; }
+.kwin-x { padding: 0.15em 0.4em; }
+.kwin-body { flex: 1; min-height: 0; overflow: auto; padding: 0.8em; }
+.kwin .k-tabs { margin: 0 0.4em; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.25em; margin-top: 0.3em; }
+.k-list { display: flex; flex-direction: column; gap: 0.35em; }
+.k-card .big { display: block; font-size: 1.8em; font-family: var(--k-serif); color: var(--k-gold); }
+
+/* Жителі */
+#peopleFilter { display: flex; gap: 0.4em; margin-bottom: 0.6em; }
+#peopleFilter button { min-width: 8.5em; font-variant-numeric: tabular-nums; }
+#peopleList .row { display: flex; gap: 0.6em; align-items: center; }
+#peopleList .who { min-width: 0; }
+#peopleList .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av { flex: none; width: 2.4em; height: 2.4em; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--k-serif); font-weight: bold; color: #1b1426; background: var(--k-muted); border: 0.12em solid var(--k-edge); }
+.av[data-prof=lumberjack] { background: #a0703c; } .av[data-prof=miner] { background: #9aa0aa; } .av[data-prof=sawyer] { background: #d8a85c; }
+.av[data-prof=carrier] { background: var(--k-teal); } .av[data-prof=hero] { background: var(--k-gold); }
+
+/* Картка інформації про виділене */
+#cityInfo { position: absolute; right: 0.8em; bottom: calc(var(--dock-h) + 1em); width: 21em; max-height: 58vh; overflow: auto; padding: 0.7em 0.9em; }
+#cityInfo.bad { border-color: var(--k-red); }
 #cityInfo .hd { display: flex; justify-content: space-between; gap: 0.5em; }
 #cityInfo h3 { margin: 0; font-size: 1.15em; }
-#cityInfo small { color: #9a90aa; }
-#cityInfo h4 { margin: 0.6em 0 0.2em; font-size: 1em; color: #bbb; }
+#cityInfo small { color: var(--k-muted); }
+#cityInfo h4 { margin: 0.6em 0 0.2em; font-size: 1em; color: var(--k-gold-dim); }
+#infoClose { padding: 0.1em 0.5em; height: 1.8em; }
 #infoRows { width: 100%; border-collapse: collapse; margin-top: 0.4em; }
-#infoRows th { text-align: left; font-weight: normal; color: #9a90aa; padding: 0.1em 0.8em 0.1em 0; white-space: nowrap; vertical-align: top; }
+#infoRows th { text-align: left; font-weight: normal; color: var(--k-muted); padding: 0.1em 0.8em 0.1em 0; white-space: nowrap; vertical-align: top; }
 #infoRows td { padding: 0.1em 0; }
 #cityInfo .acts { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.6em; }
-#infoDemolish.arm { background: #8a2b2b; }
-#cityHud .row { padding: 0.15em 0.4em; border-radius: 0.3em; cursor: pointer; }
-#cityHud .row:hover { background: #3a2f4a; }
-#cityHud .row.sel { background: #4b3e60; outline: 1px solid #ffd54f; }
-#cityHud .row.bad { color: #f99; }
-#cityMsg { position: absolute; left: 50%; bottom: 8.6em; transform: translateX(-50%); color: #ffd54f; text-shadow: 0 0 4px #000; pointer-events: none; text-align: center; }
-#cityBottom { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(20, 14, 28, 0.94); border-top: 1px solid #665a78; }
-#cityBody { padding: 0.5em 0.8em; max-height: 30vh; overflow: auto; }
-#cityBody .btns { display: flex; flex-wrap: wrap; gap: 0.4em; }
-#cityBody .btns button { display: flex; flex-direction: column; align-items: flex-start; min-width: 7em; }
-#cityBody .btns small { color: #bbb; }
-#cityTabs { display: flex; align-items: center; gap: 0.4em; padding: 0.4em 0.8em; border-top: 1px solid #3a2f4a; }
-#cityHint { margin-left: 1em; color: #9ad; }
-#citySpeed { display: flex; align-items: center; gap: 0.25em; }
-#citySpeed button { min-width: 2.6em; padding: 0.2em 0.4em; }
-#citySpeed button:disabled { opacity: 0.6; cursor: default; }
-#speedActual { display: inline-block; box-sizing: border-box; width: 11em; margin-left: 0.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #f9a; }
-#peopleFilter { display: flex; gap: 0.4em; margin-bottom: 0.4em; }
+#infoDemolish.arm { background: linear-gradient(#a03a36, #6e2523); border-color: #e08a84; }
+#cityInfo .row { padding: 0.15em 0.4em; border-radius: 0.3em; cursor: pointer; }
+#cityInfo .row:hover { background: var(--k-panel2); }
+#cityInfo .none { color: var(--k-muted); }
 #infoSlots { display: flex; align-items: center; gap: 0.5em; margin-top: 0.5em; }
-#infoSlots span { color: #9a90aa; flex: 1; }
+#infoSlots span { color: var(--k-muted); flex: 1; }
 #infoAssign { display: flex; flex-wrap: wrap; gap: 0.3em; }
 #infoAssign h4 { flex-basis: 100%; }
 #slotNum { display: inline-block; min-width: 3.5em; text-align: center; font-variant-numeric: tabular-nums; }
-#peopleFilter button { min-width: 8.5em; font-variant-numeric: tabular-nums; }
-#cityBack { white-space: nowrap; }
 #selBox { position: fixed; z-index: 5; pointer-events: none; border: 1px solid #ffd54f; background: rgba(255, 213, 79, 0.12); }
 #selBox[hidden] { display: none; }
