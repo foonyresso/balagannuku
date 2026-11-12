@@ -11,6 +11,7 @@ import { planeToIso } from '../projection';
 import { Atmosphere, Particles, initStyle } from '../style';
 import { anchor, hudHooks, send, type Cmd } from './actions';
 import { BuildingGhost } from './buildingGhost';
+import { BubbleLayer } from './bubbles';
 import { applyCam, followPos } from './camera';
 import { makeFog } from './fog';
 import { drawFrame } from './frames';
@@ -37,6 +38,7 @@ export class CityView implements CityApi {
   private water: Water;
   private layers = new DepthLayers();
   private npcs = new NpcLayer();
+  private bubbles = new BubbleLayer();
   private hoverG = new Graphics();
   private ghost = new BuildingGhost();
   private surroundings: Surroundings;
@@ -75,7 +77,7 @@ export class CityView implements CityApi {
     root.addChild(makeFog());
     root.addChild(atmo.world, this.parts.layer);
     root.addChild(this.hoverG);
-    app.stage.addChild(root, atmo.multiply, atmo.lights, atmo.top);
+    app.stage.addChild(root, atmo.multiply, atmo.lights, atmo.top, this.bubbles.layer);
     atmo.resize(app.screen.width, app.screen.height);
     app.renderer.on('resize', this.onResize);
     const mid = planeToIso((SECTOR_SIZE * TILE) / 2, (SECTOR_SIZE * TILE) / 2);
@@ -167,6 +169,7 @@ export class CityView implements CityApi {
     const dt = Math.min(0.05, s.app.ticker.deltaMS / 1000);
     if (ui.speed > 0) s.animT += dt;
     this.npcs.draw(s, dt);
+    this.bubbles.update(s, this.npcs, dt);
     s.atmo.update(dt);
     s.parts.update(dt);
     emitSmoke(s, this.layers.smokers, dt);
@@ -194,7 +197,7 @@ export class CityView implements CityApi {
   cmd(cmd: Cmd) { return send(this, cmd); }
 
   /** Для автотестів: стан вибору й екранні координати об'єктів. */
-  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; layers: { ground: number; base: number; ghost: number; hover: number }; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; time: string; lights: number; particles: number; npcSprites: number; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
+  debugState(): { build: BuildingKind | null; sel: Sel | null; following: boolean; ghost: boolean; layers: { ground: number; base: number; ghost: number; hover: number }; speed: number; tick: number; zoom: number; npcs: { id: number; sx: number; sy: number }[]; time: string; lights: number; particles: number; npcSprites: number; bubbles: { texts: number; emotes: number }; buildings: { id: number; kind: string; sx: number; sy: number }[] } {
     const s = this.scene, ui = this.ui, { root, cam, w } = s;
     const scr = (x: number, y: number, z: number) => { const i = planeToIso(x * TILE, y * TILE, z); return { sx: i.x * cam.zoom + cam.x, sy: i.y * cam.zoom + cam.y }; };
     const n = w.state.npcs, npcs: { id: number; sx: number; sy: number }[] = [];
@@ -202,7 +205,7 @@ export class CityView implements CityApi {
     const buildings = w.state.buildings.map((b) => ({ id: b.id, kind: b.kind, ...scr(b.cell.x + b.size.w / 2, b.cell.y + b.size.h / 2, 6) }));
     return { build: ui.build, sel: ui.sel, following: ui.following, ghost: this.ghost.g.visible && !!this.ghost.g.parent,
       layers: { ground: root.getChildIndex(this.roads.g), base: this.ghost.base.parent ? root.getChildIndex(this.ghost.base) : -1, ghost: this.ghost.g.parent ? root.getChildIndex(this.ghost.g) : -1, hover: root.getChildIndex(this.hoverG) },
-      speed: ui.speed, tick: w.state.tick, zoom: cam.zoom, npcs, time: s.atmo.key, lights: s.atmo.lightCount, particles: s.parts.count, npcSprites: this.npcs.count, buildings };
+      speed: ui.speed, tick: w.state.tick, zoom: cam.zoom, npcs, time: s.atmo.key, lights: s.atmo.lightCount, particles: s.parts.count, npcSprites: this.npcs.count, bubbles: this.bubbles.kinds, buildings };
   }
 
   destroy(): void {
@@ -211,6 +214,7 @@ export class CityView implements CityApi {
     this.input.destroy();
     app.renderer.off('resize', this.onResize);
     app.stage.removeChild(root, atmo.multiply, atmo.lights, atmo.top);
+    this.bubbles.destroy();
     atmo.multiply.destroy(); atmo.lights.destroy({ children: true }); atmo.top.destroy({ children: true });
     root.destroy({ children: true });
     this.hud.destroy();

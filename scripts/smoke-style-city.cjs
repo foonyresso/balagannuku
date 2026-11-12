@@ -59,6 +59,10 @@ const check = (name, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', name
   await p.click('button[data-k=house]'); await p.mouse.move(400, 300); await p.waitForTimeout(500);
   check('привид споруди зі спрайтом видно', (await st()).ghost);
   await p.keyboard.press('Escape');
+  // репліки й емоції над жителями: за ~25 с з'являються і тексти, і емоції (зум близький)
+  let seenT = 0, seenE = 0;
+  for (let i = 0; i < 50 && (!seenT || !seenE); i++) { await p.waitForTimeout(500); const bb = (await st()).bubbles; seenT = Math.max(seenT, bb.texts); seenE = Math.max(seenE, bb.emotes); }
+  check('над жителями з\'являються тексти й емоції', seenT > 0 && seenE > 0, `texts=${seenT} emotes=${seenE}`);
   // зум і пан без винятків
   for (const d of [-600, 600, -600]) { await p.mouse.move(400, 250); await p.mouse.wheel(0, d); await p.waitForTimeout(200); }
   const worked = await p.evaluate(() => window.__city.debugState().particles);
