@@ -1,5 +1,6 @@
 // Перевірка спрайтів стилю «Kingdom» без скріншотів: цілісність силуету персонажів (ноги прикріплені до тіла),
 // кадри ходьби, межі й якір споруд. Потрібен dev-сервер vite на :5173 (npx vite --port 5173).
+// check: dev (імпортує сирці /src/...)
 const { chromium } = require('playwright');
 let fails = 0;
 const check = (name, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', name, ok ? '' : extra); if (!ok) fails++; };
