@@ -7,6 +7,7 @@ Vite + TypeScript (strict) + PixiJS.
 npm install
 npm run dev
 npm run build   # -> dist
+npm run check   # типи, тести, збірка, headless-смоуки
 ```
 
 ## Cloudflare Pages
@@ -16,4 +17,4 @@ npm run build   # -> dist
 - Node: 22 (змінна середовища `NODE_VERSION=22`)
 - Production branch: `main`
 
-Структура: `src/{shared,sim,render,net,ui}`.
+Структура й правила роботи з кодом: `CLAUDE.md` (корінь і кожен каталог `src/`), огляд у `docs/ARCHITECTURE.md`.

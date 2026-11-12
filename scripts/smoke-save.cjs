@@ -1,5 +1,6 @@
 // Headless: збереження. Нова гра -> місто -> автосейв/ручне збереження -> файл -> перезавантаження сторінки -> «Продовжити»
 // -> завантаження з файлу в грі -> несумісний сейв. Мережу (PeerJS) мокаємо, потрібен dev/preview-сервер (URL).
+// check: dev (мок PeerJS підміняє модуль за URL, у збірці він вшитий)
 const { chromium } = require('playwright');
 const fs = require('fs'), os = require('os'), path = require('path');
 const fail = (m) => { console.log('FAIL:', m); process.exitCode = 1; };
