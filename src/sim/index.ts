@@ -1,4 +1,5 @@
 export * from './world';
+export * from './npcStore';
 export * from './step';
 export * from './commands';
 export * from './flow';

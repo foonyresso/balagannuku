@@ -37,6 +37,7 @@
 Працівники:
 - `assign.ts`: призначення й зняття з роботи, `autoStaffIdle`.
 - `npcs.ts`: створення NPC.
+- `npcStore.ts`: `createNpcStore`, `defaultStats`, `fillNpcDefaults` (старі сейви: нові масиви, перки, спорядження).
 - `residents.ts`: стан кожного жителя для UI.
 
 Шлях:

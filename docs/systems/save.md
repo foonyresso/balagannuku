@@ -14,3 +14,6 @@
 4. Новий typed array в `NpcStore`: значення за замовчуванням створює `deserialize`, міграція лише піднімає номер.
 
 Перевірка: `src/persist/persist.test.ts`, наскрізно `scripts/smoke-save.cjs`.
+
+## v10: темний світ
+Контракти етапу 0 (`docs/DESIGN-dark-world.md`). У `MIGRATIONS[9]` додано `world.clockShift`, `walls`, `monsters`, `pois` з лічильниками id. Масиви NPC переводить `fillNpcDefaults` (`sim/npcStore.ts`): маска `perks` стає `perkSlots` (`perkSlotsFromMask`), спорядження з 4 слотів у 6, стати з stride 5 у 10, решта нових масивів (клас, xp, мана, золото, настрій, баф, `candidateUntil`) нормою. Нові поля споруд (`hp`, `builder`, `level`, `slots`, `products`, `recipe`) і `SectorState.discovered` необов'язкові. Тест: `src/persist/migrate10.test.ts`.

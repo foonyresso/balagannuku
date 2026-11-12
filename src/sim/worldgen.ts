@@ -37,11 +37,12 @@ export function createInitialState(
   return {
     tick: 0,
     rngState: seed >>> 0,
-    world: { seed, radius, minStartDistance },
+    world: { seed, radius, minStartDistance, clockShift: 0 },
     players,
     sectors: generateSectors(seed, radius),
     buildings: [],
     nextBuildingId: 1,
+    walls: [], nextWallId: 1, monsters: [], nextMonsterId: 1, pois: [], nextPoiId: 1,
     flows: createFlowLedger(),
   };
 }

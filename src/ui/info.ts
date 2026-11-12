@@ -1,7 +1,7 @@
 import { SECTOR_CELLS, SECTOR_SIZE, type BuildingKind } from '../shared';
 import { hasVacancy, slotsOf, getSectorRt, nodeTile, ratePerSec, residents, NODE_STONE, NODE_TREE, type Resident, type SimWorld } from '../sim';
 import { MAX_WORKERS, STORAGE_CAP } from '../sim/balance';
-import { NPC_STATS, NPC_STAT_BASE, NPC_STAT_COUNT, PERKS, hasPerk } from '../shared';
+import { NPC_STATS, NPC_STAT_BASE, NPC_STAT_COUNT, npcPerks } from '../shared';
 import { nameOf } from './names';
 
 /** Що виділено в місті. */
@@ -39,10 +39,11 @@ export const PERK_TXT: Record<string, string> = { swift: 'Швидкоходик
 function statRows(w: SimWorld, id: number): [string, string][] {
   const n = w.state.npcs, out: [string, string][] = [];
   for (let s = 0; s < NPC_STAT_COUNT; s++) {
+    if (!STAT_TXT[NPC_STATS[s]]) continue; // size, бойові стати й апетит поки без підписів
     const v = n.stats[id * NPC_STAT_COUNT + s];
     out.push([STAT_TXT[NPC_STATS[s]], NPC_STATS[s] === 'rare' ? `${(v / 10).toFixed(1)}%` : `${v}%${v === NPC_STAT_BASE[s] ? '' : v > NPC_STAT_BASE[s] ? ' ▲' : ' ▼'}`]);
   }
-  const perks = PERKS.filter((p) => hasPerk(n.perks[id], p)).map((p) => PERK_TXT[p]);
+  const perks = npcPerks(n.perkSlots, id).map((p) => PERK_TXT[p.def.key] ?? p.def.key);
   out.push(['Перки', perks.length ? perks.join(', ') : 'немає']);
   return out;
 }

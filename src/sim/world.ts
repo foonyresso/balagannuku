@@ -2,7 +2,7 @@ import type {
   BuildingId, BuildingState, Campfire, GameEvent, GameState, NpcStore, PackedNpcStore, PlayerState, SectorState,
   SerializedGameState, TrailLayer,
 } from '../shared';
-import { BORDER_CELLS, NPC_STAT_BASE, NPC_STAT_COUNT, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, isActiveCell, isActiveTile, stageFromTraffic } from '../shared';
+import { BORDER_CELLS, SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL, createTrailLayer, isActiveCell, isActiveTile, stageFromTraffic } from '../shared';
 import { hash2 } from './rng';
 import { fillWater, nearestShore } from './water';
 import { refreshClear } from './clear';
@@ -10,6 +10,7 @@ import { genNode, mixNodeSeed } from './nodegen';
 import { NPC_CAPACITY, SOLID_RECT, STONE_AMOUNT, TREE_AMOUNT } from './balance';
 import { createInitialState } from './worldgen';
 import { pack, unpack } from './pack';
+import { createNpcStore, fillNpcDefaults } from './npcStore';
 
 export const NODE_NONE = 0, NODE_TREE = 1, NODE_STONE = 2;
 export const T = SECTOR_SIZE; // тайлів на сторону
@@ -70,28 +71,6 @@ export interface SimWorld {
   why: Map<BuildingId, string>;
   /** Кеш позицій вогнищ за id ратуші (виводиться з ратуші, не серіалізується). */
   fires: Map<BuildingId, Campfire>;
-}
-
-/** Стати за замовчуванням (норма) для capacity NPC. */
-export function defaultStats(capacity: number): Uint8Array {
-  const a = new Uint8Array(capacity * NPC_STAT_COUNT);
-  for (let i = 0; i < capacity; i++) for (let s = 0; s < NPC_STAT_COUNT; s++) a[i * NPC_STAT_COUNT + s] = NPC_STAT_BASE[s];
-  return a;
-}
-
-export function createNpcStore(capacity: number): NpcStore {
-  return {
-    capacity, count: 0,
-    alive: new Uint8Array(capacity), sector: new Uint16Array(capacity),
-    x: new Float32Array(capacity), y: new Float32Array(capacity),
-    profession: new Uint8Array(capacity), task: new Uint8Array(capacity),
-    targetBuilding: new Int32Array(capacity).fill(-1), owner: new Uint8Array(capacity),
-    hp: new Uint16Array(capacity), level: new Uint8Array(capacity),
-    inventory: new Uint16Array(capacity * 8), equipment: new Uint16Array(capacity * 4),
-    carryKind: new Uint8Array(capacity).fill(255), carryAmount: new Uint8Array(capacity),
-    nameId: new Uint16Array(capacity), stats: defaultStats(capacity), perks: new Uint16Array(capacity),
-    fullness: new Uint8Array(capacity).fill(100),
-  };
 }
 
 function createNpcRt(capacity: number): NpcRt {
@@ -242,16 +221,7 @@ export function deserialize(s: SerializedGameState): SimWorld {
   const { npcs: pn, ...rest } = structuredClone(s);
   const npcs: Record<string, unknown> = { capacity: pn.capacity, count: pn.count };
   for (const [k, v] of Object.entries(pn)) if (typeof v !== 'number') npcs[k] = unpack(v);
-  // Старі сейви (до v5) без імен/статів/перків: заповнюємо нормою
-  if (!npcs.stats) npcs.stats = defaultStats(pn.capacity);
-  else if ((npcs.stats as Uint8Array).length !== pn.capacity * NPC_STAT_COUNT) { // старий stride статів (до size)
-    const old = npcs.stats as Uint8Array, oldN = old.length / pn.capacity, fresh = defaultStats(pn.capacity);
-    for (let i = 0; i < pn.capacity; i++) for (let s = 0; s < Math.min(oldN, NPC_STAT_COUNT); s++) fresh[i * NPC_STAT_COUNT + s] = old[i * oldN + s];
-    npcs.stats = fresh;
-  }
-  if (!npcs.nameId) npcs.nameId = new Uint16Array(pn.capacity);
-  if (!npcs.fullness) npcs.fullness = new Uint8Array(pn.capacity).fill(100);
-  if (!npcs.perks) npcs.perks = new Uint16Array(pn.capacity);
+  fillNpcDefaults(npcs, pn.capacity); // старі сейви: нові масиви нормою, перки й спорядження в новому форматі
   const w = wrapState({ ...rest, npcs: npcs as unknown as NpcStore }, pn.capacity);
   for (const b of w.state.buildings) {
     getSectorRt(w, b.sector);

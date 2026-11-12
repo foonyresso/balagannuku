@@ -1,7 +1,7 @@
 import type { SerializedGameState } from './state';
 
 /** Поточна версія формату сейва. Підвищуй при КОЖНІЙ зміні форми SerializedGameState. */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 export const SAVE_MAGIC = 'balagannuku-save';
 export const SAVE_EXTENSION = '.save';
 
@@ -78,6 +78,21 @@ export const MIGRATIONS: Record<number, SaveMigration> = {
   },
   // v8 -> v9: ситість NPC (fullness) і ферма/фермер; масив fullness створює deserialize (повна ситість).
   8: (old) => ({ ...(old as object), version: 9 }),
+  // v9 -> v10: темний світ. Стан: world.clockShift, walls, monsters, pois (з лічильниками id). Масиви NPC (perkSlots замість маски perks,
+  // 6 слотів спорядження, стати hp/atk/def/mana/appetite, klass, xp, mana, gold, mood, buff, candidateUntil) і необов'язкові поля споруд
+  // (hp, builder, level, slots, products, recipe) та sectors[].discovered доповнює і переводить deserialize (sim/npcStore.ts).
+  9: (old) => {
+    const f = old as { version: number; state: { world: object } & Record<string, unknown> };
+    return {
+      ...f,
+      version: 10,
+      state: {
+        ...f.state,
+        world: { ...f.state.world, clockShift: 0 },
+        walls: [], nextWallId: 1, monsters: [], nextMonsterId: 1, pois: [], nextPoiId: 1,
+      },
+    };
+  },
 };
 
 export function migrateSave(raw: { version: number }): SaveFile {

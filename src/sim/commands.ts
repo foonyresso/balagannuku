@@ -184,6 +184,8 @@ function apply(w: SimWorld, { player, cmd }: CommandEnvelope): Res {
       unassign(w, cmd.npc);
       w.npc.manual[cmd.npc] = 1;
       return { ok: true };
+    case 'admin':
+      return no('not_admin'); // адмін-панель з'явиться з етапом 1 (потрібен прапор adminEnabled хоста)
     default:
       return no('invalid'); // решта команд — поза етапом економіки
   }
