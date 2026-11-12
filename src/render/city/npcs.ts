@@ -8,7 +8,7 @@ import { emitHit } from './fx';
 import { TILE, rowOf, type Scene } from './scene';
 
 /** Візуал жителя: спрайт, ноша, лічильники анімації. */
-export interface NpcVis { s: Sprite; carry: Sprite; lx: number; ly: number; dist: number; dir: number; frame: number; row: number; fish?: number }
+export interface NpcVis { s: Sprite; carry: Sprite; lx: number; ly: number; dist: number; dir: number; frame: number; row: number; fish?: number; /** Висота голови над землею в одиницях світу (для бульбашок). */ hy: number }
 
 const WORK_TASK = TASKS.indexOf('work');
 const SIZE_STAT = statIndex('size');
@@ -21,6 +21,11 @@ export class NpcLayer {
   private vis = new Map<number, NpcVis>();
 
   get count(): number { return this.vis.size; }
+
+  /** Голови жителів у координатах кореня світу (для бульбашок над ними). */
+  forEachHead(cb: (id: number, x: number, y: number) => void): void {
+    for (const [i, v] of this.vis) cb(i, v.s.x, v.s.y - v.hy);
+  }
 
   draw(scene: Scene, dt: number): void {
     const n = scene.w.state.npcs, npc = scene.w.npc, alpha = scene.clock.alpha(performance.now());
@@ -36,7 +41,7 @@ export class NpcLayer {
       if (!v) {
         const s = new Sprite(spr(frameId('civ', 'idle', 0)).tex), c = new Sprite(spr('bundle_wood').tex);
         s.anchor.set(0.5); c.anchor.set(0.5, 1);
-        v = { s, carry: c, lx: px, ly: py, dist: i * 3.7, dir: 1, frame: -1, row: -1 };
+        v = { s, carry: c, lx: px, ly: py, dist: i * 3.7, dir: 1, frame: -1, row: -1, hy: 24 };
         this.vis.set(i, v);
       }
       const moved = Math.hypot(px - v.lx, py - v.ly);
@@ -57,6 +62,7 @@ export class NpcLayer {
       }
       const small = n.stats[i * NPC_STAT_COUNT + SIZE_STAT] < 2 ? 0.82 : 1;
       const base = planeToIso(px, py, 0);
+      v.hy = (n.carryAmount[i] ? 38 : 26) * a.scale * small;
       if (tool === 'rod' && anim === 'act') drawFishing(scene, fg, v, i, tx, ty, fi, a.scale * small, base);
       v.s.scale.set(a.scale * small * v.dir, a.scale * small);
       v.s.position.set(base.x, base.y); v.s.zIndex = py;
