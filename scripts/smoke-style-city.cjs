@@ -19,12 +19,24 @@ const check = (name, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', name
   await p.evaluate(() => { const g = window.__game.sim; for (const pl of g.state.players) for (const k of Object.keys(pl.resources)) pl.resources[k] = 9999; for (const b of g.state.buildings) if (b.kind === 'townhall') for (const k of ['wood','stone','planks','food']) b.stock[k] = 9999; });
   const r = await p.evaluate(() => {
     const c = window.__city, kinds = ['warehouse', 'lumberjack', 'quarry', 'sawmill', 'house', 'farm', 'hunter', 'fisher'], out = {};
-    const th = c.w.state.buildings.find((x) => x.kind === 'townhall');
+    const { w, sector } = c.scene, th = w.state.buildings.find((x) => x.kind === 'townhall');
     for (const k of kinds) {
       out[k] = false;
       for (let i = 0; i < 400 && !out[k]; i++) {
         const cell = { x: th.cell.x - 60 + (i % 20) * 12, y: th.cell.y - 40 + Math.floor(i / 20) * 12 };
-        out[k] = c.cmd({ type: 'place_building', kind: k, sector: c.sector, cell }).ok;
+        out[k] = c.cmd({ type: 'place_building', kind: k, sector, cell }).ok;
+      }
+    }
+    // рибалка стає лише на березі: якщо сітка біля ратуші води не зачепила, шукаємо довкола тайлів води, від найближчих до ратуші
+    if (!out.fisher) {
+      const water = w.sectors.get(sector).water, T = Math.sqrt(water.length), shore = [];
+      for (let y = 0; y < T; y += 4) for (let x = 0; x < T; x += 4) if (water[y * T + x]) shore.push({ x, y, d: Math.hypot(x - th.cell.x, y - th.cell.y) });
+      shore.sort((a, b) => a.d - b.d);
+      for (const t of shore.slice(0, 600)) {
+        for (let dy = -16; dy <= 8 && !out.fisher; dy += 4) for (let dx = -16; dx <= 8 && !out.fisher; dx += 4) {
+          out.fisher = c.cmd({ type: 'place_building', kind: 'fisher', sector, cell: { x: t.x + dx, y: t.y + dy } }).ok;
+        }
+        if (out.fisher) break;
       }
     }
     return out;

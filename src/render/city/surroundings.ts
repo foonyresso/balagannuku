@@ -1,13 +1,12 @@
 import { Container, Sprite, type Renderer } from 'pixi.js';
-import type { SectorState } from '../shared';
-import { SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL as TPC, WORLD_RING } from '../shared';
-import { nodeTile } from '../sim';
-import { genNode, mixNodeSeed } from '../sim/nodegen';
-import { planeToIso, screenToIso, type Camera } from './projection';
-import { OAK_VARIANTS, PINE_VARIANTS, ROCK_VARIANTS, makeGround, spr, treeSpriteId, variant } from './style';
+import type { SectorState } from '../../shared';
+import { SECTOR_CELLS, SECTOR_SIZE, TILES_PER_CELL as TPC, WORLD_RING } from '../../shared';
+import { nodeTile } from '../../sim';
+import { genNode, mixNodeSeed } from '../../sim/nodegen';
+import { planeToIso, screenToIso, type Camera } from '../projection';
+import { TILE } from './scene';
+import { OAK_VARIANTS, PINE_VARIANTS, ROCK_VARIANTS, makeGround, spr, treeSpriteId, variant } from '../style';
 
-/** Розмір тайла в одиницях площини (узгоджено з CityView). */
-const TILE = 4;
 const SECTOR_UNITS = SECTOR_SIZE * TILE;
 /** Роздільність запеченої текстури сусіднього сектора (0.4 → ~1640×1100 пікселів на сектор). */
 const BAKE_RESOLUTION = 0.4;

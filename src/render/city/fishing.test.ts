@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bobberAt, nearestWater } from './fishing';
-import { actFrames, hitFrame, rodTip } from './style/characters';
+import { actFrames, hitFrame, rodTip } from '../style/characters';
 
 describe('fishing view', () => {
   const water = (x: number, _y: number) => x >= 10;

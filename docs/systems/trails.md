@@ -1,10 +1,10 @@
 # Стежки (емерджентні дороги)
 
-Контракт: `shared/trails.ts`. Логіка: `stepOn`, `decayTrails`, `updateRoadAttached` у `sim/step.ts`. Вигляд: `render/cityView.ts`.
+Контракт: `shared/trails.ts`. Логіка: `sim/systems/trails.ts` (`stepOn`, `decayTrails`, `updateRoadAttached`). Вигляд: `render/city/roads.ts`.
 
 - Кожен сектор має лічильник трафіку на тайл (u16). Прохід NPC додає `TRAIL_STEP_ADD`.
 - Стадія похідна від трафіку за порогами `DEFAULT_TRAIL_THRESHOLDS`: немає -> витоптана -> дорога -> вимощена. Перехід униз із гістерезисом `TRAIL_HYSTERESIS`, щоб стадії не мерехтіли.
-- Згасання раз на `TRAIL_DECAY_INTERVAL` тіків, швидкість залежить від стадії (`TRAIL_DECAY_BY_STAGE` у `sim/balance.ts`): що вища стадія, то повільніше заростає.
+- Згасання раз на `TRAIL_DECAY_INTERVAL` тіків, швидкість залежить від стадії (`TRAIL_DECAY_BY_STAGE` у `sim/balance/trails.ts`): що вища стадія, то повільніше заростає.
 - У сейві лежить лише трафік. Пороги й згасання — баланс, змінюються без зміни формату сейва.
 - Дорога прискорює NPC (`ROAD_SPEED_MULT`).
 - Пошук шляху тягнеться до доріг: вартість клітинки за стадією `ROAD_PATH_COST`, сила `ROAD_PULL` (`sim/path.ts`). Тому стежки підсилюються самі.

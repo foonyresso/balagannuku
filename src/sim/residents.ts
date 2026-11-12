@@ -1,5 +1,5 @@
 import { PROFESSIONS, RESOURCE_KINDS } from '../shared';
-import { PHASE } from './step';
+import { PHASE } from './jobs/consts';
 import type { SimWorld } from './world';
 
 export type ResidentState = 'free' | 'to_node' | 'working' | 'to_home' | 'processing' | 'carrying' | 'to_storage_take' | 'to_mill' | 'milling' | 'planning' | 'waiting' | 'no_path';

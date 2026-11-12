@@ -1,6 +1,6 @@
 # Економіка
 
-Логіка: `sim/step.ts`. Числа: `sim/balance.ts`. Команди: `sim/commands.ts`.
+Поведінка працівників: `sim/jobs/`. Системи світу: `sim/systems/`. Числа: `sim/balance/`. Команди: `sim/commands.ts`.
 
 ## Як це працює
 - Кожен працівник прив'язаний до споруди. Продуктивність споруди = частка зайнятих слотів (`MAX_WORKERS`), окремої формули немає.
@@ -22,8 +22,8 @@
 
 ## Додати споруду з професією
 1. `shared/ids.ts`: `BuildingKind`, `Profession`. `shared/state.ts`: `PROFESSIONS` (лише в кінець).
-2. `sim/balance.ts`: `COSTS`, `FOOTPRINT`, `MAX_WORKERS`, `JOB_OF`.
-3. `sim/step.ts`: гілка в `plan` (або окремий файл із планом, якщо логіка нова).
+2. `sim/balance/buildings.ts`: один запис у `BUILDINGS` (розмір, ціна, слоти, професія). Тривалості в `sim/balance/work.ts`.
+3. `sim/jobs/`: файл професії з планом і фазами, рядки в `jobs/npc.ts` (кроки в `sim/jobs/CLAUDE.md`). Якщо професія працює як наявна (добувач, фермер), досить гілки в її файлі.
 4. `sim/commands.ts`: особливі умови розміщення в `checkPlace`, якщо є.
 5. `render/style/buildings.ts`: `registerBuildingStyle`. `render/style/characters.ts`: `CLASSES` і `CLASS_OF`.
 6. `ui/info.ts`: назви в `BUILD_NAMES`, `PROF_TXT`, вихідний ресурс в `OUT`.

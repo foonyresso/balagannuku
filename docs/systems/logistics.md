@@ -1,6 +1,6 @@
 # Логістика
 
-Код: `nearestAcceptor`, `nearestStorage`, `planDeposit`, `planCarrier`, `planSawyer` у `sim/step.ts`.
+Код: `sim/jobs/logistics.ts` (`nearestAcceptor`, `nearestStorage`, `planDeposit`), носій у `sim/jobs/carrier.ts`, пиляр у `sim/jobs/sawmill.ts`, місткість у `sim/stock.ts`.
 
 ## Правило
 Працівник несе ресурс до **найближчої точки, що його приймає й має місце**: спершу споживач, інакше склад. Споживач може добирати зі складу сам.
