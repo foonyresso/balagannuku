@@ -1,4 +1,4 @@
-import { NPC_STAT_BASE, NPC_STAT_COUNT, TASKS, makeNameId } from '../shared';
+import { EQUIPMENT_SLOTS, INVENTORY_SLOTS, MOOD_START, NPC_STAT_BASE, NPC_STAT_COUNT, PERK_SLOT_COUNT, TASKS, makeNameId } from '../shared';
 import { hash2 } from './rng';
 import { T, getSectorRt, type SimWorld } from './world';
 
@@ -18,7 +18,9 @@ export function spawnNpc(w: SimWorld, ownerIdx: number, sector: number, cx: numb
   n.profession[i] = 0; n.task[i] = TASKS.indexOf('idle'); n.targetBuilding[i] = -1;
   n.owner[i] = ownerIdx; n.hp[i] = 100; n.level[i] = 1;
   n.carryKind[i] = 255; n.carryAmount[i] = 0;
-  n.nameId[i] = makeNameId(hash2(i, n.count, 13)); n.perks[i] = 0; n.fullness[i] = 100;
+  n.nameId[i] = makeNameId(hash2(i, n.count, 13)); n.fullness[i] = 100;
+  n.perkSlots.fill(0, i * PERK_SLOT_COUNT, (i + 1) * PERK_SLOT_COUNT); n.equipment.fill(0, i * EQUIPMENT_SLOTS, (i + 1) * EQUIPMENT_SLOTS); n.inventory.fill(0, i * INVENTORY_SLOTS, (i + 1) * INVENTORY_SLOTS);
+  n.klass[i] = 0; n.xp[i] = 0; n.mana[i] = 0; n.gold[i] = 0; n.mood[i] = MOOD_START; n.buff[i] = 0; n.buffUntil[i] = 0; n.candidateUntil[i] = 0;
   for (let s = 0; s < NPC_STAT_COUNT; s++) n.stats[i * NPC_STAT_COUNT + s] = NPC_STAT_BASE[s];
   w.npc.phase[i] = 0; w.npc.timer[i] = 0; w.npc.workplace[i] = -1; w.npc.aux[i] = -1; w.npc.path[i] = null; w.npc.tile[i] = -1; w.npc.manual[i] = 0; w.npc.camp[i] = -1; w.npc.stage[i] = 0;
   return i;

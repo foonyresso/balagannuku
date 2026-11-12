@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MIGRATIONS, npcName } from '../shared';
+import { MIGRATIONS, npcName, packPerk } from '../shared';
 import { residents, applyCommand, getSectorRt, deserialize, serialize, staffBuilding, stepWorld } from './index';
 import { setup, place, run } from './testkit';
 
@@ -123,13 +123,15 @@ describe('працівники: слоти, призначення, стати',
     const n = w.state.npcs;
     expect(n.stats[0]).toBe(100);
     expect(npcName(n.nameId[0]).length).toBeGreaterThan(3);
-    n.stats[1] = 150; n.perks[0] = 3;
+    n.stats[1] = 150; n.perkSlots[0] = packPerk(2, 77); n.gold[0] = 123; n.klass[0] = 2;
     const back = deserialize(serialize(w));
     expect(back.state.npcs.stats[1]).toBe(150);
-    expect(back.state.npcs.perks[0]).toBe(3);
+    expect(back.state.npcs.perkSlots[0]).toBe(packPerk(2, 77));
+    expect(back.state.npcs.gold[0]).toBe(123);
+    expect(back.state.npcs.klass[0]).toBe(2);
     expect(back.state.npcs.nameId[0]).toBe(n.nameId[0]);
     const old = serialize(w) as unknown as { npcs: Record<string, unknown> };
-    delete old.npcs.stats; delete old.npcs.nameId; delete old.npcs.perks;
+    delete old.npcs.stats; delete old.npcs.nameId; delete old.npcs.perkSlots;
     const w2 = deserialize(old as never);
     expect(w2.state.npcs.stats[0]).toBe(100);
     expect(MIGRATIONS[4]({ version: 4 })).toEqual({ version: 5 });
